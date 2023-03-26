@@ -20,6 +20,8 @@ class IsolateHolderService : Service() {
         @JvmStatic
         val ACTION_SHUTDOWN = "SHUTDOWN"
         @JvmStatic
+        val ACTION_START = "START"
+        @JvmStatic
         private val WAKELOCK_TAG = "IsolateHolderService::WAKE_LOCK"
         @JvmStatic
         private val TAG = "IsolateHolderService"
@@ -38,6 +40,11 @@ class IsolateHolderService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "IsolateHolderService onCreate...")
+        start()
+    }
+
+    private fun start() {
         val CHANNEL_ID = "geofencing_plugin_channel"
         val channel = NotificationChannel(CHANNEL_ID,
                 "Flutter Geofencing Plugin",
@@ -72,6 +79,9 @@ class IsolateHolderService : Service() {
             }
             stopForeground(true)
             stopSelf()
+        }
+        if (intent.getAction() == ACTION_START) {
+            start()
         }
         return START_STICKY;
     }

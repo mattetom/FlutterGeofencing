@@ -9,6 +9,7 @@ import android.app.Activity
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
@@ -116,6 +117,10 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
           result?.error(it.toString(), null, null)
         }
       }
+
+      val intent = Intent(context, IsolateHolderService::class.java)
+            intent.action = IsolateHolderService.ACTION_START
+      ContextCompat.startForegroundService(context, intent)
     }
 
     @JvmStatic
