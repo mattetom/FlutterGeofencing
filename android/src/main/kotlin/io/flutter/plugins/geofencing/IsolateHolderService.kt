@@ -24,7 +24,9 @@ class IsolateHolderService : Service() {
         @JvmStatic
         private val WAKELOCK_TAG = "IsolateHolderService::WAKE_LOCK"
         @JvmStatic
-        private val TAG = "IsolateHolderService"
+        private val TAG = "IsolateHolderService"        
+        @JvmStatic
+        var isServiceRunning = false
         @JvmStatic
         private var sBackgroundFlutterEngine: FlutterEngine? = null
 
@@ -73,19 +75,39 @@ class IsolateHolderService : Service() {
 
     override fun onStartCommand(intent: Intent, flags: Int, startId: Int) : Int {
         if (intent.getAction() == ACTION_SHUTDOWN) {
-            (getSystemService(Context.POWER_SERVICE) as PowerManager).run {
-                newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG).apply {
-                    if (isHeld()) {
-                        release()
-                    }
-                }
-            }
-            stopForeground(true)
-            stopSelf()
+            isServiceRunning = false
+            shutdownHolderService()
         }
         if (intent.getAction() == ACTION_START) {
-            start()
+            if (isServiceRunning) {
+                isServiceRunning = false
+                shutdownHolderService()
+            }
+
+            if (!isServiceRunning) {
+                isServiceRunning = true
+                start()
+            }
         }
         return START_STICKY;
+    }
+
+    private fun shutdownHolderService() {
+        Log.e("IsolateHolderService", "shutdownHolderService")
+        (getSystemService(Context.POWER_SERVICE) as PowerManager).run {
+            newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG).apply {
+                if (isHeld) {
+                    release()
+                }
+            }
+        }
+
+        // locatorClient?.removeLocationUpdates()
+        stopForeground(true)
+        stopSelf()
+
+        // pluggables.forEach {
+        //     context?.let { it1 -> it.onServiceDispose(it1) }
+        // }
     }
 }
