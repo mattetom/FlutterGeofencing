@@ -56,7 +56,10 @@ class IsolateHolderService : Service() {
                 .setContentTitle("GeoBlink")
                 .setContentText("Gofencing is enabled")
                 .setSmallIcon(imageId)
+                .setColor(0)
                 .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setOnlyAlertOnce(true) // so when data is updated don't make sound and alert in android 8.0+
+                .setOngoing(true)
                 .build()
 
         (getSystemService(Context.POWER_SERVICE) as PowerManager).run {
