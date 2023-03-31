@@ -12,6 +12,7 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
 import android.util.Log
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingClient
@@ -27,7 +28,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.PluginRegistry.Registrar
 import org.json.JSONArray
 
-class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
+class GeofencingPlugin : ActivityAware, FlutterPlugin, PluginRegistry.NewIntentListener, MethodCallHandler {
   private var mContext : Context? = null
   private var mActivity : Activity? = null
   private var mGeofencingClient : GeofencingClient? = null
@@ -47,6 +48,9 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     val PERSISTENT_GEOFENCES_IDS = "persistent_geofences_ids"
     @JvmStatic
     private val sGeofenceCacheLock = Object()
+
+    @JvmStatic
+    private var channel: MethodChannel? = null
 
     @JvmStatic
     fun reRegisterAfterReboot(context: Context) {
@@ -228,22 +232,33 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     private fun getPersistentGeofenceKey(id: String): String {
       return "persistent_geofence/" + id
     }
+
+    @JvmStatic
+    private fun isServiceRunning(result: Result?) {
+      result?.success(IsolateHolderService.isServiceRunning)
+    }
   }
 
   override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-    mContext = binding.getApplicationContext()
-    mGeofencingClient = LocationServices.getGeofencingClient(mContext!!)
-    val channel = MethodChannel(binding.getBinaryMessenger(), "plugins.flutter.io/geofencing_plugin")
-    channel.setMethodCallHandler(this)
+    onAttachedToEngine(binding.applicationContext, binding.binaryMessenger)
+  }
+
+  private fun onAttachedToEngine(context: Context, messenger: BinaryMessenger) {
+    val plugin = GeofencingPlugin()
+    plugin.mContext = context
+
+    channel = MethodChannel(messenger, Keys.CHANNEL_ID)
+    channel?.setMethodCallHandler(plugin)
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-    mContext = null
-    mGeofencingClient = null
+    //mContext = null
+    //mGeofencingClient = null
   }
 
   override fun onAttachedToActivity(binding: ActivityPluginBinding) {
     mActivity = binding.getActivity()
+    binding.addOnNewIntentListener(this)
   }
 
   override fun onDetachedFromActivity() {
@@ -251,7 +266,7 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
   }
 
   override fun onDetachedFromActivityForConfigChanges() {
-    mActivity = null
+    //mActivity = null
   }
 
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
@@ -262,20 +277,63 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     val args = call.arguments<ArrayList<*>>()
     when(call.method) {
       "GeofencingPlugin.initializeService" -> {
+        // save callback dispatcher to use it when device reboots
+        PreferencesManager.saveCallbackDispatcher(mContext!! , args!!)
         initializeService(mContext!!, args)
         result.success(true)
       }
-      "GeofencingPlugin.registerGeofence" -> registerGeofence(mContext!!,
-              mGeofencingClient!!,
-              args,
-              result,
-              true)
+      "GeofencingPlugin.registerGeofence" -> {
+        // save setting to use it when device reboots
+        PreferencesManager.saveSettings(mContext!!, args!!)
+        registerGeofence(
+          mContext!!,
+          mGeofencingClient!!,
+          args,
+          result,
+          true
+        )
+      }
       "GeofencingPlugin.removeGeofence" -> removeGeofence(mContext!!,
               mGeofencingClient!!,
               args,
               result)
       "GeofencingPlugin.getRegisteredGeofenceIds" -> getRegisteredGeofenceIds(mContext!!, result)
+      Keys.METHOD_PLUGIN_IS_REGISTER_LOCATION_UPDATE -> isServiceRunning(result)
+      Keys.METHOD_PLUGIN_IS_SERVICE_RUNNING -> isServiceRunning(result)
       else -> result.notImplemented()
     }
+  }
+
+  override fun onNewIntent(intent: Intent): Boolean {
+    if (intent.action != Keys.NOTIFICATION_ACTION) {
+      // this is not our notification
+      return false
+    }
+
+    IsolateHolderService.getBinaryMessenger(mContext)?.let { binaryMessenger ->
+      val notificationCallback =
+        PreferencesManager.getCallbackHandle(
+          activity!!,
+          Keys.NOTIFICATION_CALLBACK_HANDLE_KEY
+        )
+      if (notificationCallback != null && IsolateHolderService.backgroundEngine != null) {
+        val backgroundChannel =
+          MethodChannel(
+            binaryMessenger,
+            Keys.BACKGROUND_CHANNEL_ID
+          )
+        activity?.mainLooper?.let {
+          Handler(it)
+            .post {
+              backgroundChannel.invokeMethod(
+                Keys.BCM_NOTIFICATION_CLICK,
+                hashMapOf(Keys.ARG_NOTIFICATION_CALLBACK to notificationCallback)
+              )
+            }
+        }
+      }
+    }
+
+    return true
   }
 }
