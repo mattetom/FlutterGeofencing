@@ -7,7 +7,7 @@ import yukams.app.background_locator_2.provider.LocationClient
 
 class PreferencesManager {
     companion object {
-        private const val PREF_NAME = "background_locator_2"
+        private const val PREF_NAME = "plugin_geofencing"
 
         @JvmStatic
         fun saveCallbackDispatcher(context: Context, map: Map<Any, Any>) {

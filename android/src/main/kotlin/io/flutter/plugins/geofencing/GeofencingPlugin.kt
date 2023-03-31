@@ -5,6 +5,7 @@
 package io.flutter.plugins.geofencing
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.PendingIntent
 import android.content.Context
@@ -26,12 +27,14 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.PluginRegistry.Registrar
+import io.flutter.plugins.geofencing.pluggables.DisposePluggable
+import io.flutter.plugins.geofencing.pluggables.InitPluggable
 import org.json.JSONArray
 
 class GeofencingPlugin : ActivityAware, FlutterPlugin, PluginRegistry.NewIntentListener, MethodCallHandler {
   private var mContext : Context? = null
   private var mActivity : Activity? = null
-  private var mGeofencingClient : GeofencingClient? = null
+  //private var mGeofencingClient : GeofencingClient? = null
 
   companion object {
     @JvmStatic
@@ -55,51 +58,87 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, PluginRegistry.NewIntentL
     @JvmStatic
     fun reRegisterAfterReboot(context: Context) {
       synchronized(sGeofenceCacheLock) {
-        var p = context.getSharedPreferences(SHARED_PREFERENCES_KEY, Context.MODE_PRIVATE)
-        var persistentGeofences = p.getStringSet(PERSISTENT_GEOFENCES_IDS, null)
-        if (persistentGeofences == null) {
-          return
-        }
-        for (id in persistentGeofences) {
-          val gfJson = p.getString(getPersistentGeofenceKey(id), null)
-          if (gfJson == null) {
-            continue
-          }
-          val gfArgs = JSONArray(gfJson)
-          val list = ArrayList<Object>()
-          for (i in 0 until gfArgs.length()) {
-            list.add(gfArgs.get(i) as Object)
-          }
-          val geoClient = LocationServices.getGeofencingClient(context)
-          registerGeofence(context, geoClient, list, null, false)
+//        var p = context.getSharedPreferences(SHARED_PREFERENCES_KEY, Context.MODE_PRIVATE)
+//        var persistentGeofences = p.getStringSet(PERSISTENT_GEOFENCES_IDS, null)
+//        if (persistentGeofences == null) {
+//          return
+//        }
+//        for (id in persistentGeofences) {
+//          val gfJson = p.getString(getPersistentGeofenceKey(id), null)
+//          if (gfJson == null) {
+//            continue
+//          }
+//          val gfArgs = JSONArray(gfJson)
+//          val list = ArrayList<Object>()
+//          for (i in 0 until gfArgs.length()) {
+//            list.add(gfArgs.get(i) as Object)
+//          }
+//          val geoClient = LocationServices.getGeofencingClient(context)
+//          registerGeofence(context, geoClient, list, null, false)
+//        }
+        val args = PreferencesManager.getSettings(context)
+
+        val plugin = GeofencingPlugin()
+        plugin.mContext = context
+
+        initializeService(context, args)
+
+        val settings = args[Keys.ARG_SETTINGS] as Map<*, *>
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+          context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+          == PackageManager.PERMISSION_GRANTED
+        ) {
+          startIsolateService(context, settings)
         }
       }
     }
 
+    @JvmStatic
+    private fun sendResultWithDelay(context: Context, result: Result?, value: Boolean, delay: Long) {
+      context.mainLooper.let {
+        Handler(it).postDelayed({
+          result?.success(value)
+        }, delay)
+      }
+    }
+
+    @SuppressLint("MissingPermission")
     @JvmStatic
     private fun registerGeofence(context: Context,
                                  geofencingClient: GeofencingClient,
                                  args: ArrayList<*>?,
                                  result: Result?,
                                  cache: Boolean) {
+      if (IsolateHolderService.isServiceRunning) {
+        // The service is running already
+        Log.d(TAG, "Locator service is already running")
+        result?.success(true)
+        return
+      }
+      Log.d(TAG, "registerGeofence")
+
       val callbackHandle = args!![0] as Long
-      val id = args[1] as String
-      val lat = args[2] as Double
-      val long = args[3] as Double
-      val radius = (args[4] as Number).toFloat()
-      val fenceTriggers = args[5] as Int
-      val initialTriggers = args[6] as Int
-      val expirationDuration = (args[7] as Int).toLong()
-      val loiteringDelay = args[8] as Int
-      val notificationResponsiveness = args[9] as Int
-      val geofence = Geofence.Builder()
-              .setRequestId(id)
-              .setCircularRegion(lat, long, radius)
-              .setTransitionTypes(fenceTriggers)
-              .setLoiteringDelay(loiteringDelay)
-              .setNotificationResponsiveness(notificationResponsiveness)
-              .setExpirationDuration(expirationDuration)
-              .build()
+      PreferencesManager.setCallbackHandle(context, Keys.CALLBACK_HANDLE_KEY, callbackHandle)
+
+      // Call InitPluggable with initCallbackHandle
+//      (args[Keys.ARG_INIT_CALLBACK] as? Long)?.let { initCallbackHandle ->
+//        val initPluggable = InitPluggable()
+//        initPluggable.setCallback(context, initCallbackHandle)
+
+//        // Set init data if available
+//        (args[Keys.ARG_INIT_DATA_CALLBACK] as? Map<*, *>)?.let { initData ->
+//          initPluggable.setInitData(context, initData)
+//        }
+//      }
+
+      // Call DisposePluggable with disposeCallbackHandle
+//      (args[Keys.ARG_DISPOSE_CALLBACK] as? Long)?.let {
+//        val disposePluggable = DisposePluggable()
+//        disposePluggable.setCallback(context, it)
+//      }
+
+      val settings = args
+
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
               (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
                       == PackageManager.PERMISSION_DENIED)) {
@@ -107,23 +146,82 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, PluginRegistry.NewIntentL
         Log.w(TAG, msg)
         result?.error(msg, null, null)
       }
-      geofencingClient.addGeofences(getGeofencingRequest(geofence, initialTriggers),
-              getGeofencePendingIndent(context, callbackHandle))?.run {
-        addOnSuccessListener {
-          Log.i(TAG, "Successfully added geofence")
-          if (cache) {
-            addGeofenceToCache(context, id, args)
-          }
-          result?.success(true)
-        }
-        addOnFailureListener {
-          Log.e(TAG, "Failed to add geofence: $it")
-          result?.error(it.toString(), null, null)
-        }
+
+
+      startIsolateService(context, settings)
+
+      // We need to know when the service binded exactly, there is some delay between starting a
+      // service and it's binding
+      // HELP WANTED: I couldn't find a better way to handle this, so any help or suggestion would be appreciated
+      sendResultWithDelay(context, result, true, 1000)
+
+
+//      val id = args[1] as String
+//      val lat = args[2] as Double
+//      val long = args[3] as Double
+//      val radius = (args[4] as Number).toFloat()
+//      val fenceTriggers = args[5] as Int
+//      val initialTriggers = args[6] as Int
+//      val expirationDuration = (args[7] as Int).toLong()
+//      val loiteringDelay = args[8] as Int
+//      val notificationResponsiveness = args[9] as Int
+//      val geofence = Geofence.Builder()
+//        .setRequestId(id)
+//        .setCircularRegion(lat, long, radius)
+//        .setTransitionTypes(fenceTriggers)
+//        .setLoiteringDelay(loiteringDelay)
+//        .setNotificationResponsiveness(notificationResponsiveness)
+//        .setExpirationDuration(expirationDuration)
+//        .build()
+//
+//      geofencingClient.addGeofences(getGeofencingRequest(geofence, initialTriggers),
+//        getGeofencePendingIndent(context, callbackHandle))?.run {
+//        addOnSuccessListener {
+//          Log.i(TAG, "Successfully added geofence")
+//          if (cache) {
+//            addGeofenceToCache(context, id, args)
+//          }
+//          result?.success(true)
+//        }
+//        addOnFailureListener {
+//          Log.e(TAG, "Failed to add geofence: $it")
+//          result?.error(it.toString(), null, null)
+//        }
+//      }
+//
+//      val intent = Intent(context, IsolateHolderService::class.java)
+//      intent.action = IsolateHolderService.ACTION_START
+//      ContextCompat.startForegroundService(context, intent)
+    }
+
+    @JvmStatic
+    private fun startIsolateService(context: Context, settings: ArrayList<*>) {
+      Log.e("BackgroundLocatorPlugin", "startIsolateService")
+      val intent = Intent(context, IsolateHolderService::class.java)
+      intent.action = IsolateHolderService.ACTION_START
+      intent.putExtra(Keys.SETTINGS_GEOFENCE_REQUEST_ID,
+        settings[1] as? String)
+      intent.putExtra(Keys.SETTINGS_GEOFENCE_LATITUDE,
+        settings[2] as? Double)
+      intent.putExtra(Keys.SETTINGS_GEOFENCE_LONGITUDE,
+        settings[3] as? Double)
+      intent.putExtra(Keys.SETTINGS_GEOFENCE_RADIUS,
+        settings[4] as? Float)
+      intent.putExtra(Keys.SETTINGS_GEOFENCE_FENCETRIGGES,
+        settings[5] as? Int)
+      intent.putExtra(Keys.SETTINGS_GEOFENCE_INITIALTRIGGERS,
+        settings[6] as? Int)
+      intent.putExtra(Keys.SETTINGS_GEOFENCE_EXPIRATIONDURATION, settings[7] as? Long)
+      intent.putExtra(Keys.SETTINGS_GEOFENCE_LOITERINGDELAY, settings[8] as? Int)
+      intent.putExtra(Keys.SETTINGS_GEOFENCE_NOTIFICATIONRESPONSIVENESS, settings[9] as? Int)
+
+      if (PreferencesManager.getCallbackHandle(context, Keys.INIT_CALLBACK_HANDLE_KEY) != null) {
+        intent.putExtra(Keys.SETTINGS_INIT_PLUGGABLE, true)
+      }
+      if (PreferencesManager.getCallbackHandle(context, Keys.DISPOSE_CALLBACK_HANDLE_KEY) != null) {
+        intent.putExtra(Keys.SETTINGS_DISPOSABLE_PLUGGABLE, true)
       }
 
-      val intent = Intent(context, IsolateHolderService::class.java)
-            intent.action = IsolateHolderService.ACTION_START
       ContextCompat.startForegroundService(context, intent)
     }
 
@@ -262,7 +360,7 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, PluginRegistry.NewIntentL
   }
 
   override fun onDetachedFromActivity() {
-    mActivity = null
+    //mActivity = null
   }
 
   override fun onDetachedFromActivityForConfigChanges() {
@@ -270,7 +368,7 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, PluginRegistry.NewIntentL
   }
 
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-    mActivity = binding.getActivity()
+    //mActivity = binding.getActivity()
   }
 
   override fun onMethodCall(call: MethodCall, result: Result) {
@@ -313,7 +411,7 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, PluginRegistry.NewIntentL
     IsolateHolderService.getBinaryMessenger(mContext)?.let { binaryMessenger ->
       val notificationCallback =
         PreferencesManager.getCallbackHandle(
-          activity!!,
+          mActivity!!,
           Keys.NOTIFICATION_CALLBACK_HANDLE_KEY
         )
       if (notificationCallback != null && IsolateHolderService.backgroundEngine != null) {
@@ -322,7 +420,7 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, PluginRegistry.NewIntentL
             binaryMessenger,
             Keys.BACKGROUND_CHANNEL_ID
           )
-        activity?.mainLooper?.let {
+        mActivity?.mainLooper?.let {
           Handler(it)
             .post {
               backgroundChannel.invokeMethod(

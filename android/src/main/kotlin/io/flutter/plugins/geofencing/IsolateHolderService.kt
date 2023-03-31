@@ -34,6 +34,17 @@ class IsolateHolderService : Service() {
         fun setBackgroundFlutterEngine(engine: FlutterEngine?) {
             sBackgroundFlutterEngine = engine
         }
+
+        fun getBinaryMessenger(context: Context?): BinaryMessenger? {
+            val messenger = sBackgroundFlutterEngine?.dartExecutor?.binaryMessenger
+            return messenger
+                ?: if (context != null) {
+                    sBackgroundFlutterEngine = FlutterEngine(context)
+                    sBackgroundFlutterEngine?.dartExecutor?.binaryMessenger
+                }else{
+                    messenger
+                }
+        }
     }
 
     override fun onBind(p0: Intent) : IBinder? {
@@ -52,6 +63,8 @@ class IsolateHolderService : Service() {
                 "Geofencing",
                 NotificationManager.IMPORTANCE_NONE)
         val imageId = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName())
+
+
 
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)

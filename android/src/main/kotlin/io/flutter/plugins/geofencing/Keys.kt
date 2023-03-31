@@ -145,6 +145,33 @@ class Keys {
         val SETTINGS_DISPOSABLE_PLUGGABLE = "settings_disposable_pluggable"
 
         @JvmStatic
+        val SETTINGS_GEOFENCE_NOTIFICATIONRESPONSIVENESS="SETTINGS_GEOFENCE_NOTIFICATIONRESPONSIVENESS"
+
+        @JvmStatic
+        val SETTINGS_GEOFENCE_LOITERINGDELAY="SETTINGS_GEOFENCE_LOITERINGDELAY"
+
+        @JvmStatic
+        val SETTINGS_GEOFENCE_EXPIRATIONDURATION="SETTINGS_GEOFENCE_EXPIRATIONDURATION"
+
+        @JvmStatic
+        val SETTINGS_GEOFENCE_INITIALTRIGGERS="SETTINGS_GEOFENCE_INITIALTRIGGERS"
+
+        @JvmStatic
+        val SETTINGS_GEOFENCE_FENCETRIGGES="SETTINGS_GEOFENCE_FENCETRIGGES"
+
+        @JvmStatic
+        val SETTINGS_GEOFENCE_RADIUS="SETTINGS_GEOFENCE_RADIUS"
+
+        @JvmStatic
+        val SETTINGS_GEOFENCE_LONGITUDE="SETTINGS_GEOFENCE_LONGITUDE"
+
+        @JvmStatic
+        val SETTINGS_GEOFENCE_LATITUDE= "SETTINGS_GEOFENCE_LATITUDE"
+
+        @JvmStatic
+        val SETTINGS_GEOFENCE_REQUEST_ID = "SETTINGS_GEOFENCE_REQUEST_ID"
+
+        @JvmStatic
         val BCM_SEND_LOCATION = "BCM_SEND_LOCATION"
 
         @JvmStatic
@@ -157,6 +184,6 @@ class Keys {
         val BCM_DISPOSE = "BCM_DISPOSE"
 
         @JvmStatic
-        val NOTIFICATION_ACTION = "com.yukams.background_locator_2.notification"
+        val NOTIFICATION_ACTION = "io.flutter.plugins.geofencing.notification"
     }
 }
