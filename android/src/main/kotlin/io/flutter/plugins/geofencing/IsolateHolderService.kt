@@ -51,7 +51,7 @@ class IsolateHolderService : Service() {
         val channel = NotificationChannel(CHANNEL_ID,
                 "Geofencing",
                 NotificationManager.IMPORTANCE_NONE)
-        val imageId = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName())
+        val imageId = getResources().getIdentifier("ic_stat_notification", "drawable", getPackageName())
 
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)

@@ -25,6 +25,7 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.PluginRegistry.Registrar
+import io.flutter.plugins.geofencing.IsolateHolderService.Companion.isServiceRunning
 import org.json.JSONArray
 
 class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
@@ -118,9 +119,11 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
         }
       }
 
-      val intent = Intent(context, IsolateHolderService::class.java)
-            intent.action = IsolateHolderService.ACTION_START
-      ContextCompat.startForegroundService(context, intent)
+      if(!isServiceRunning) {
+        val intent = Intent(context, IsolateHolderService::class.java)
+        intent.action = IsolateHolderService.ACTION_START
+        ContextCompat.startForegroundService(context, intent)
+      }
     }
 
     @JvmStatic
