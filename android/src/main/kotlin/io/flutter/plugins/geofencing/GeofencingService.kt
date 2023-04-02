@@ -37,7 +37,7 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
 
     companion object {
         @JvmStatic
-        private val TAG = "GeofencingService"
+        private val TAG = "GeofencingPlugin"
         @JvmStatic
         private val JOB_ID = UUID.randomUUID().mostSignificantBits.toInt()
         @JvmStatic

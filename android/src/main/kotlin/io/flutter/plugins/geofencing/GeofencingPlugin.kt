@@ -120,6 +120,7 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
       }
 
       if(!isServiceRunning) {
+        Log.i(TAG, "Service is not running, starting it...")
         val intent = Intent(context, IsolateHolderService::class.java)
         intent.action = IsolateHolderService.ACTION_START
         ContextCompat.startForegroundService(context, intent)
