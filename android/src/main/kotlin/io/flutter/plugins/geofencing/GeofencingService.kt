@@ -126,23 +126,23 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
     override fun onHandleWork(intent: Intent) {
         val callbackHandle = intent.getLongExtra(GeofencingPlugin.CALLBACK_HANDLE_KEY, 0)
         val geofencingEvent = GeofencingEvent.fromIntent(intent)
-        if (geofencingEvent.hasError()) {
-            Log.e(TAG, "Geofencing error: ${geofencingEvent.errorCode}")
+        if (geofencingEvent!!.hasError()) {
+            Log.e(TAG, "Geofencing error: ${geofencingEvent!!.errorCode}")
             return
         }
 
         // Get the transition type.
-        val geofenceTransition = geofencingEvent.geofenceTransition
+        val geofenceTransition = geofencingEvent!!.geofenceTransition
 
         // Get the geofences that were triggered. A single event can trigger
         // multiple geofences.
-        val triggeringGeofences = geofencingEvent.triggeringGeofences.map {
-            it.requestId
+        val triggeringGeofences = geofencingEvent!!.triggeringGeofences!!.map {
+            it!!.requestId
         }
 
-        val location = geofencingEvent.triggeringLocation
-        val locationList = listOf(location.latitude,
-                location.longitude)
+        val location = geofencingEvent!!.triggeringLocation
+        val locationList = listOf(location!!.latitude,
+                location!!.longitude)
         val geofenceUpdateList = listOf(callbackHandle,
                 triggeringGeofences,
                 locationList,

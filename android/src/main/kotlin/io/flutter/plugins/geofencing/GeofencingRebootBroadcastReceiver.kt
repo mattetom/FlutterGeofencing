@@ -14,13 +14,13 @@ class GeofencingRebootBroadcastReceiver : BroadcastReceiver() {
         private const val TAG = "GeofencingPlugin"
     }
     override fun onReceive(context: Context, intent: Intent) {
-        Log.e(TAG, "GeofencingRebootBroadcastReceiver.onReceive " + intent.getAction())
+        Log.i(TAG, "GeofencingRebootBroadcastReceiver.onReceive " + intent.getAction())
         if (intent.getAction().equals("android.intent.action.BOOT_COMPLETED")) {
             Log.e(TAG, "GeofencingRebootBroadcastReceiver.onReceive BOOT_COMPLETED")
             GeofencingPlugin.reRegisterAfterReboot(context)
         }
-        if (intent.getAction().equals("android.intent.action.PACKAGE_REPLACED")) {
-            Log.e(TAG, "GeofencingRebootBroadcastReceiver.onReceive PACKAGE_REPLACED")
+        if (intent.getAction().equals("android.intent.action.MY_PACKAGE_REPLACED")) {
+            Log.i(TAG, "GeofencingRebootBroadcastReceiver.onReceive MY_PACKAGE_REPLACED")
             GeofencingPlugin.reRegisterAfterReboot(context)
         }
     }
