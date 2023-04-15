@@ -32,7 +32,7 @@ class IsolateHolderService : Service() {
 
         @JvmStatic
         fun setBackgroundFlutterEngine(engine: FlutterEngine?) {
-            sBackgroundFlutterEngine = engine!
+            sBackgroundFlutterEngine = engine
         }
     }
 
