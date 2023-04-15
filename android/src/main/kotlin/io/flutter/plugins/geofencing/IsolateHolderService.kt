@@ -32,7 +32,7 @@ class IsolateHolderService : Service() {
 
         @JvmStatic
         fun setBackgroundFlutterEngine(engine: FlutterEngine?) {
-            sBackgroundFlutterEngine = engine
+            sBackgroundFlutterEngine = engine!
         }
     }
 
@@ -47,6 +47,7 @@ class IsolateHolderService : Service() {
     }
 
     private fun start() {
+        Log.e(TAG, "startHolderService")
         val CHANNEL_ID = "geofencing"
         val channel = NotificationChannel(CHANNEL_ID,
                 "Geofencing",
@@ -93,7 +94,7 @@ class IsolateHolderService : Service() {
     }
 
     private fun shutdownHolderService() {
-        Log.e("IsolateHolderService", "shutdownHolderService")
+        Log.e(TAG, "shutdownHolderService")
         (getSystemService(Context.POWER_SERVICE) as PowerManager).run {
             newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG).apply {
                 if (isHeld) {
