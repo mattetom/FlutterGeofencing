@@ -45,6 +45,8 @@ class _MyAppState extends State<MyApp> {
     );
     port.listen((dynamic data) {
       print('Event: $data');
+      sendGeofenceNotification(
+          data == '0' ? GeofenceEvent.enter : GeofenceEvent.exit);
       setState(() {
         geofenceState = data;
       });
@@ -58,7 +60,7 @@ class _MyAppState extends State<MyApp> {
     if (firstPermission.isGranted && secondPermission.isGranted) {
       await GeofencingManager.registerGeofence(
         GeofenceRegion(
-          'mtv',
+          'gfp',
           latitude,
           longitude,
           radius,
@@ -75,7 +77,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   void unregisteGeofence() async {
-    await GeofencingManager.removeGeofenceById('mtv');
+    await GeofencingManager.removeGeofenceById('gfp');
     final registeredIds = await GeofencingManager.getRegisteredGeofenceIds();
     setState(() {
       registeredGeofences = registeredIds;
@@ -88,38 +90,9 @@ class _MyAppState extends State<MyApp> {
     final SendPort? send =
         IsolateNameServer.lookupPortByName('geofencing_send_port');
     if (send != null)
-      send.send(e.toString());
+      send.send(e == GeofenceEvent.enter ? '0' : '1');
     else
       print("SendPort is null");
-
-    const AndroidNotificationDetails androidNotificationDetails =
-        AndroidNotificationDetails('notifications', 'Notifications',
-            channelDescription: 'Notifications about arm/disarm alarm system.',
-            importance: Importance.max,
-            priority: Priority.high,
-            ticker: 'Notifications about arm/disarm alarm system.');
-    const NotificationDetails notificationDetails =
-        NotificationDetails(android: androidNotificationDetails);
-    FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-        FlutterLocalNotificationsPlugin();
-    // initialise the plugin. app_icon needs to be a added as a drawable resource to the Android head project
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@drawable/ic_stat_notification');
-    final DarwinInitializationSettings initializationSettingsDarwin =
-        DarwinInitializationSettings();
-    final InitializationSettings initializationSettings =
-        InitializationSettings(
-            android: initializationSettingsAndroid,
-            iOS: initializationSettingsDarwin);
-    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
-    await flutterLocalNotificationsPlugin.show(
-        2,
-        'Geofencing Plugin',
-        (e == GeofenceEvent.enter
-            ? 'You entered geofencing area. '
-            : 'You exited geofencing area. '),
-        notificationDetails,
-        payload: 'item x');
   }
 
   Future<void> initPlatformState() async {
@@ -190,5 +163,36 @@ class _MyAppState extends State<MyApp> {
                         }),
                   ]))),
     );
+  }
+
+  Future<void> sendGeofenceNotification(GeofenceEvent e) async {
+    const AndroidNotificationDetails androidNotificationDetails =
+        AndroidNotificationDetails('notifications', 'Notifications',
+            channelDescription: 'Notifications about arm/disarm alarm system.',
+            importance: Importance.max,
+            priority: Priority.high,
+            ticker: 'Notifications about arm/disarm alarm system.');
+    const NotificationDetails notificationDetails =
+        NotificationDetails(android: androidNotificationDetails);
+    FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+        FlutterLocalNotificationsPlugin();
+    // initialise the plugin. app_icon needs to be a added as a drawable resource to the Android head project
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@drawable/ic_stat_notification');
+    final DarwinInitializationSettings initializationSettingsDarwin =
+        DarwinInitializationSettings();
+    final InitializationSettings initializationSettings =
+        InitializationSettings(
+            android: initializationSettingsAndroid,
+            iOS: initializationSettingsDarwin);
+    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+    await flutterLocalNotificationsPlugin.show(
+        2,
+        'Geofencing Plugin',
+        (e == GeofenceEvent.enter
+            ? 'You entered geofencing area. '
+            : 'You exited geofencing area. '),
+        notificationDetails,
+        payload: 'test geofencing plugin');
   }
 }
