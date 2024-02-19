@@ -6,11 +6,13 @@ package io.flutter.plugins.geofencing
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationChannel
 import android.app.PendingIntent
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.util.Log
 import com.google.android.gms.location.Geofence
@@ -153,19 +155,22 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
         createChannel(context)
     }
 
+    private val NOTIFICATION_ID = 66
+    private val CHANNEL_ID = "GeofencePluginChannel"
+
     @JvmStatic
     private fun createChannel(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         val notificationChannel = NotificationChannel(
             CHANNEL_ID,
-            context.getString("AndroidGeofencingPlugin"),
+            "AndroidGeofencingPlugin",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             setShowBadge(false)
             enableLights(true)
             enableVibration(true)
             lightColor = Color.RED
-            description = context.getString("Android plugin for geofencing")
+            description = "Android plugin for geofencing"
         }
 
         val notificationManager = context.getSystemService(NotificationManager::class.java)

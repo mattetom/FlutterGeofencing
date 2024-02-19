@@ -91,8 +91,10 @@ class _MyAppState extends State<MyApp> {
         IsolateNameServer.lookupPortByName('geofencing_send_port');
     if (send != null)
       send.send(e == GeofenceEvent.enter ? '0' : '1');
-    else
+    else {
       print("SendPort is null");
+      sendGeofenceNotification(e);
+    }
   }
 
   Future<void> initPlatformState() async {
@@ -165,7 +167,7 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
-  Future<void> sendGeofenceNotification(GeofenceEvent e) async {
+  static Future<void> sendGeofenceNotification(GeofenceEvent e) async {
     const AndroidNotificationDetails androidNotificationDetails =
         AndroidNotificationDetails('notifications', 'Notifications',
             channelDescription: 'Notifications about arm/disarm alarm system.',
