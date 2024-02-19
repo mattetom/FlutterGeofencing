@@ -7,6 +7,7 @@ package io.flutter.plugins.geofencing
 import android.Manifest
 import android.app.Activity
 import android.app.PendingIntent
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -147,7 +148,30 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
               .edit()
               .putLong(CALLBACK_DISPATCHER_HANDLE_KEY, callbackHandle)
               .apply()
+
+        // Create channel for notifications
+        createChannel(context)
     }
+
+    @JvmStatic
+    private fun createChannel(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val notificationChannel = NotificationChannel(
+            CHANNEL_ID,
+            context.getString("AndroidGeofencingPlugin"),
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            setShowBadge(false)
+            enableLights(true)
+            enableVibration(true)
+            lightColor = Color.RED
+            description = context.getString("Android plugin for geofencing")
+        }
+
+        val notificationManager = context.getSystemService(NotificationManager::class.java)
+        notificationManager.createNotificationChannel(notificationChannel)
+    }
+}
 
     @JvmStatic
     private fun getGeofencingRequest(geofence: Geofence, initialTrigger: Int): GeofencingRequest {
