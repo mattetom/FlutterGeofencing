@@ -1,5 +1,5 @@
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
-    <string name="app_name">TreasureHunt</string>
+    <string name="app_name">GeoBlinkAndroid</string>
     <string name="title_activity_hunt">Treasure Hunt</string>
 
     <!--    Permissions Strings-->
