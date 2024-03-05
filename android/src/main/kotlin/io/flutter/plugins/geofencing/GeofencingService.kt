@@ -124,6 +124,7 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
     }
 
     override fun onHandleWork(intent: Intent) {
+        Log.i(TAG, "onHandleWork")
         val callbackHandle = intent.getLongExtra(GeofencingPlugin.CALLBACK_HANDLE_KEY, 0)
         val geofencingEvent = GeofencingEvent.fromIntent(intent)
         if (geofencingEvent == null || geofencingEvent.hasError()) {
@@ -152,9 +153,11 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
 
         synchronized(sServiceStarted) {
             if (!sServiceStarted.get()) {
+                Log.i(TAG, "onHandleWork synchronized(sServiceStarted) if (!sServiceStarted.get()) ")
                 // Queue up geofencing events while background isolate is starting
                 queue.add(listOf(geofenceUpdateList))
             } else {
+                Log.i(TAG, "onHandleWork synchronized(sServiceStarted) else")
                 // Callback method name is intentionally left blank.
                 Handler(mContext.mainLooper).post { mBackgroundChannel.invokeMethod("", geofenceUpdateList) }
             }

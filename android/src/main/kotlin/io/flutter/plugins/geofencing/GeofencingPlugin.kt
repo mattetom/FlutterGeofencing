@@ -69,6 +69,7 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
             list.add(gfArgs.get(i) as Object)
           }
           val geoClient = LocationServices.getGeofencingClient(context)
+          Log.i(TAG, "reRegisterAfterReboot")
           registerGeofence(context, geoClient, list, null, false)
         }
       }

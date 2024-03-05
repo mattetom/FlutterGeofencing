@@ -33,10 +33,12 @@ class IsolateHolderService : Service() {
     }
 
     override fun onBind(p0: Intent) : IBinder? {
+        Log.i(TAG, "onBind")
         return null;
     }
 
     override fun onCreate() {
+        Log.i(TAG, "onCreate")
         super.onCreate()
         val CHANNEL_ID = "geofencing_plugin_channel"
         val channel = NotificationChannel(CHANNEL_ID,
@@ -62,6 +64,7 @@ class IsolateHolderService : Service() {
     }
 
     override fun onStartCommand(intent: Intent, flags: Int, startId: Int) : Int {
+        Log.i(TAG, "onStartCommand")
         if (intent.getAction() == ACTION_SHUTDOWN) {
             (getSystemService(Context.POWER_SERVICE) as PowerManager).run {
                 newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG).apply {
