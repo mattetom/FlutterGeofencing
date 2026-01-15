@@ -119,6 +119,31 @@ static BOOL backgroundIsolateRun = NO;
 - (void)locationManager:(CLLocationManager *)manager
     monitoringDidFailForRegion:(CLRegion *)region
                      withError:(NSError *)error {
+  NSLog(@"GeofencingPlugin: Monitoring failed for region '%@': %@", region.identifier, error.localizedDescription);
+  
+  // Remove the failed region from our callback mapping since it's not being monitored
+  if (region != nil) {
+    [self removeCallbackHandleForRegionId:region.identifier];
+  }
+  
+  // Log specific error types for debugging
+  switch (error.code) {
+    case kCLErrorRegionMonitoringDenied:
+      NSLog(@"GeofencingPlugin: Location services denied for region monitoring");
+      break;
+    case kCLErrorRegionMonitoringFailure:
+      NSLog(@"GeofencingPlugin: Region monitoring failure - possibly exceeded max regions (20)");
+      break;
+    case kCLErrorRegionMonitoringSetupDelayed:
+      NSLog(@"GeofencingPlugin: Region monitoring setup delayed");
+      break;
+    case kCLErrorRegionMonitoringResponseDelayed:
+      NSLog(@"GeofencingPlugin: Region monitoring response delayed");
+      break;
+    default:
+      NSLog(@"GeofencingPlugin: Unknown monitoring error code: %ld", (long)error.code);
+      break;
+  }
 }
 
 #pragma mark GeofencingPlugin Methods
@@ -187,6 +212,43 @@ static BOOL backgroundIsolateRun = NO;
   double radius = [arguments[4] doubleValue];
   int64_t triggerMask = [arguments[5] longLongValue];
 
+  // Check iOS region limit (max 20 regions)
+  NSUInteger currentRegionCount = [[self->_locationManager monitoredRegions] count];
+  
+  // Check if we're replacing an existing region or adding a new one
+  BOOL isReplacing = NO;
+  for (CLRegion *existingRegion in [self->_locationManager monitoredRegions]) {
+    if ([existingRegion.identifier isEqualToString:identifier]) {
+      isReplacing = YES;
+      break;
+    }
+  }
+  
+  if (!isReplacing && currentRegionCount >= 20) {
+    NSLog(@"GeofencingPlugin: Cannot register geofence '%@': iOS limit of 20 regions reached (current: %lu)", 
+          identifier, (unsigned long)currentRegionCount);
+    // Note: Consider adding a callback to notify the Dart side of this failure
+    return;
+  }
+  
+  // Validate coordinates
+  if (latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
+    NSLog(@"GeofencingPlugin: Invalid coordinates for geofence '%@': lat=%f, lon=%f", identifier, latitude, longitude);
+    return;
+  }
+  
+  // Validate radius (iOS minimum is ~100m for reliable detection)
+  if (radius < 100.0) {
+    NSLog(@"GeofencingPlugin: Warning - radius %.1fm for geofence '%@' is below recommended minimum of 100m", radius, identifier);
+  }
+  
+  // Clamp radius to iOS maximum
+  double maxRadius = self->_locationManager.maximumRegionMonitoringDistance;
+  if (radius > maxRadius) {
+    NSLog(@"GeofencingPlugin: Clamping radius from %.1fm to maximum %.1fm for geofence '%@'", radius, maxRadius, identifier);
+    radius = maxRadius;
+  }
+
   CLCircularRegion *region =
       [[CLCircularRegion alloc] initWithCenter:CLLocationCoordinate2DMake(latitude, longitude)
                                         radius:radius
@@ -196,6 +258,8 @@ static BOOL backgroundIsolateRun = NO;
   
   [self setCallbackHandleForRegionId:callbackHandle regionId:identifier];
   [self->_locationManager startMonitoringForRegion:region];
+  
+  NSLog(@"GeofencingPlugin: Registered geofence '%@' at (%.6f, %.6f) with radius %.1fm", identifier, latitude, longitude, radius);
 }
 
 - (BOOL)removeGeofence:(NSArray *)arguments {

@@ -26,7 +26,6 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.MethodCall
-import io.flutter.plugin.common.PluginRegistry.Registrar
 import org.json.JSONArray
 
 class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
@@ -107,17 +106,22 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
         result?.error(msg, null, null)
       }
       geofencingClient.addGeofences(getGeofencingRequest(geofence, initialTriggers),
-              getGeofencePendingIndent(context, callbackHandle))?.run {
+              getGeofencePendingIndent(context, callbackHandle, id))?.run {
         addOnSuccessListener {
-          Log.i(TAG, "Successfully added geofence")
+          Log.i(TAG, "Successfully added geofence: $id")
           if (cache) {
             addGeofenceToCache(context, id, args)
           }
           result?.success(true)
         }
-        addOnFailureListener {
-          Log.e(TAG, "Failed to add geofence: $it")
-          result?.error(it.toString(), null, null)
+        addOnFailureListener { exception ->
+          val errorCode = when (exception) {
+            is com.google.android.gms.common.api.ApiException -> exception.statusCode
+            else -> -1
+          }
+          val errorMessage = getGeofenceErrorMessage(errorCode)
+          Log.e(TAG, "Failed to add geofence '$id': $errorMessage (code: $errorCode)")
+          result?.error("GEOFENCE_ERROR", errorMessage, mapOf("code" to errorCode, "id" to id))
         }
       }
     }
@@ -188,13 +192,16 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     }
 
     @JvmStatic
-    private fun getGeofencePendingIndent(context: Context, callbackHandle: Long): PendingIntent {
+    private fun getGeofencePendingIndent(context: Context, callbackHandle: Long, geofenceId: String): PendingIntent {
       val intent = Intent(context, GeofencingBroadcastReceiver::class.java)
               .putExtra(CALLBACK_HANDLE_KEY, callbackHandle)
+              .putExtra("geofence_id", geofenceId)
+      // Use geofence ID hash as requestCode to ensure each geofence gets a unique PendingIntent
+      val requestCode = geofenceId.hashCode()
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        return PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+        return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
       } else {
-        return PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT)
+        return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT)
       }
     }
 
@@ -252,6 +259,21 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     @JvmStatic
     private fun getPersistentGeofenceKey(id: String): String {
       return "persistent_geofence/" + id
+    }
+
+    @JvmStatic
+    private fun getGeofenceErrorMessage(errorCode: Int): String {
+      return when (errorCode) {
+        com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE ->
+          "Geofence service is not available now. Typically this is because the device has no data connection."
+        com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_TOO_MANY_GEOFENCES ->
+          "Too many geofences registered. Android supports max 100 geofences per app."
+        com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_TOO_MANY_PENDING_INTENTS ->
+          "Too many pending intents registered."
+        com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_INSUFFICIENT_LOCATION_PERMISSION ->
+          "Insufficient location permissions. Ensure ACCESS_FINE_LOCATION and ACCESS_BACKGROUND_LOCATION are granted."
+        else -> "Unknown geofence error (code: $errorCode)"
+      }
     }
   }
 

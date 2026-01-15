@@ -17,20 +17,48 @@ void callbackDispatcher() {
   WidgetsFlutterBinding.ensureInitialized();
 
   _backgroundChannel.setMethodCallHandler((MethodCall call) async {
-    final List<dynamic> args = call.arguments;
-    final Function? callback = PluginUtilities.getCallbackFromHandle(
-        CallbackHandle.fromRawHandle(args[0]));
-    assert(callback != null);
-    final List<String> triggeringGeofences = args[1].cast<String>();
-    final List<double> locationList = <double>[];
-    // 0.0 becomes 0 somewhere during the method call, resulting in wrong
-    // runtime type (int instead of double). This is a simple way to get
-    // around casting in another complicated manner.
-    args[2]
-        .forEach((dynamic e) => locationList.add(double.parse(e.toString())));
-    final Location triggeringLocation = locationFromList(locationList);
-    final GeofenceEvent event = intToGeofenceEvent(args[3]);
-    callback?.call(triggeringGeofences, triggeringLocation, event);
+    try {
+      final List<dynamic> args = call.arguments;
+      
+      if (args == null || args.length < 4) {
+        print('GeofencingPlugin: Invalid callback arguments received');
+        return;
+      }
+      
+      final Function? callback = PluginUtilities.getCallbackFromHandle(
+          CallbackHandle.fromRawHandle(args[0]));
+      
+      // Use proper null check instead of assert (assert is stripped in release mode)
+      if (callback == null) {
+        print('GeofencingPlugin: Failed to retrieve callback from handle ${args[0]}');
+        return;
+      }
+      
+      final List<String> triggeringGeofences = args[1]?.cast<String>() ?? <String>[];
+      final List<double> locationList = <double>[];
+      
+      // 0.0 becomes 0 somewhere during the method call, resulting in wrong
+      // runtime type (int instead of double). This is a simple way to get
+      // around casting in another complicated manner.
+      if (args[2] != null) {
+        args[2].forEach((dynamic e) => locationList.add(double.parse(e.toString())));
+      }
+      
+      final Location triggeringLocation = locationFromList(locationList);
+      final GeofenceEvent event = intToGeofenceEvent(args[3]);
+      
+      // Call the user's callback with try-catch to prevent crashes
+      try {
+        callback(triggeringGeofences, triggeringLocation, event);
+      } catch (e, stackTrace) {
+        print('GeofencingPlugin: Error in user callback: $e');
+        print(stackTrace);
+      }
+    } catch (e, stackTrace) {
+      print('GeofencingPlugin: Error in callback dispatcher: $e');
+      print(stackTrace);
+    }
   });
+  
   _backgroundChannel.invokeMethod('GeofencingService.initialized');
 }

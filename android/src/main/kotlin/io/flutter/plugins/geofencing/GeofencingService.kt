@@ -15,11 +15,8 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.MethodCall
-import io.flutter.plugin.common.PluginRegistry.PluginRegistrantCallback
 import io.flutter.view.FlutterCallbackInformation
-import io.flutter.view.FlutterMain
-import io.flutter.view.FlutterNativeView
-import io.flutter.view.FlutterRunArguments
+import io.flutter.FlutterInjector
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.UUID
@@ -46,16 +43,8 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
         private val sServiceStarted = AtomicBoolean(false)
 
         @JvmStatic
-        private lateinit var sPluginRegistrantCallback: PluginRegistrantCallback
-
-        @JvmStatic
         fun enqueueWork(context: Context, work: Intent) {
             enqueueWork(context, GeofencingService::class.java, JOB_ID, work)
-        }
-
-        @JvmStatic
-        fun setPluginRegistrant(callback: PluginRegistrantCallback) {
-            sPluginRegistrantCallback = callback
         }
     }
 
@@ -81,9 +70,10 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
                 }
                 Log.i(TAG, "Starting GeofencingService...")
 
+                val flutterLoader = FlutterInjector.instance().flutterLoader()
                 val args = DartCallback(
                     context.getAssets(),
-                    FlutterMain.findAppBundlePath(context)!!,
+                    flutterLoader.findAppBundlePath(),
                     callbackInfo
                 )
                 sBackgroundFlutterEngine!!.getDartExecutor().executeDartCallback(args)
@@ -153,11 +143,12 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
 
         synchronized(sServiceStarted) {
             if (!sServiceStarted.get()) {
-                Log.i(TAG, "onHandleWork synchronized(sServiceStarted) if (!sServiceStarted.get()) ")
+                Log.i(TAG, "Queuing geofence event while background isolate is starting")
                 // Queue up geofencing events while background isolate is starting
-                queue.add(listOf(geofenceUpdateList))
+                // NOTE: Don't wrap in extra list - send the same format as direct invocation
+                queue.add(geofenceUpdateList)
             } else {
-                Log.i(TAG, "onHandleWork synchronized(sServiceStarted) else")
+                Log.i(TAG, "Sending geofence event to background isolate")
                 // Callback method name is intentionally left blank.
                 Handler(mContext.mainLooper).post { mBackgroundChannel.invokeMethod("", geofenceUpdateList) }
             }

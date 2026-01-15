@@ -15,10 +15,31 @@ const int _kEnterEvent = 1;
 const int _kExitEvent = 2;
 const int _kDwellEvent = 4;
 
+/// Maximum number of geofences allowed on iOS
+const int kMaxGeofencesIOS = 20;
+
+/// Maximum number of geofences allowed on Android
+const int kMaxGeofencesAndroid = 100;
+
+/// Minimum recommended radius for reliable geofence detection (meters)
+const double kMinRecommendedRadius = 100.0;
+
 /// Valid geofencing events.
 ///
 /// Note: `GeofenceEvent.dwell` is not supported on iOS.
 enum GeofenceEvent { enter, exit, dwell }
+
+/// Exception thrown when geofencing operations fail
+class GeofencingException implements Exception {
+  final String message;
+  final String? code;
+  final dynamic details;
+
+  GeofencingException(this.message, {this.code, this.details});
+
+  @override
+  String toString() => 'GeofencingException: $message${code != null ? ' (code: $code)' : ''}';
+}
 
 // Internal.
 int geofenceEventToInt(GeofenceEvent e) {
@@ -34,7 +55,6 @@ int geofenceEventToInt(GeofenceEvent e) {
   }
 }
 
-// TODO(bkonyi): handle event masks
 // Internal.
 GeofenceEvent intToGeofenceEvent(int e) {
   switch (e) {
@@ -45,7 +65,7 @@ GeofenceEvent intToGeofenceEvent(int e) {
     case _kDwellEvent:
       return GeofenceEvent.dwell;
     default:
-      throw UnimplementedError();
+      throw UnimplementedError('Unknown geofence event: $e');
   }
 }
 
@@ -103,13 +123,52 @@ class GeofencingManager {
   static const MethodChannel _background =
       MethodChannel('plugins.flutter.io/geofencing_plugin_background');
 
+  /// Whether the plugin has been initialized
+  static bool _initialized = false;
+  
+  /// Completer for initialization to prevent multiple concurrent initializations
+  static Completer<void>? _initCompleter;
+
   /// Initialize the plugin and request relevant permissions from the user.
+  /// 
+  /// This method is safe to call multiple times - it will only initialize once.
   static Future<void> initialize() async {
-    final CallbackHandle? callback =
-        PluginUtilities.getCallbackHandle(callbackDispatcher);
-    if (callback != null) {
+    if (_initialized) return;
+    
+    // Prevent concurrent initialization
+    if (_initCompleter != null) {
+      return _initCompleter!.future;
+    }
+    
+    _initCompleter = Completer<void>();
+    
+    try {
+      final CallbackHandle? callback =
+          PluginUtilities.getCallbackHandle(callbackDispatcher);
+      if (callback == null) {
+        throw GeofencingException(
+          'Failed to get callback handle for dispatcher',
+          code: 'CALLBACK_HANDLE_ERROR',
+        );
+      }
+      
       await _channel.invokeMethod('GeofencingPlugin.initializeService',
           <dynamic>[callback.toRawHandle()]);
+      _initialized = true;
+      _initCompleter!.complete();
+    } catch (e) {
+      _initCompleter!.completeError(e);
+      _initCompleter = null;
+      rethrow;
+    }
+  }
+  
+  /// Ensures the plugin is initialized before performing operations.
+  /// 
+  /// Automatically initializes if not already initialized.
+  static Future<void> _ensureInitialized() async {
+    if (!_initialized) {
+      await initialize();
     }
   }
 
@@ -137,26 +196,91 @@ class GeofencingManager {
   /// Note: `GeofenceEvent.dwell` is not supported on iOS. If the
   /// `GeofenceRegion` provided only requests notifications for a
   /// `GeofenceEvent.dwell` trigger on iOS, `UnsupportedError` is thrown.
+  /// 
+  /// Throws [GeofencingException] if:
+  /// - Invalid coordinates are provided
+  /// - Maximum number of geofences is reached (20 on iOS, 100 on Android)
+  /// - Geofencing service is not available
   static Future<void> registerGeofence(
       GeofenceRegion region,
       void Function(List<String> id, Location location, GeofenceEvent event)
           callback) async {
+    // Auto-initialize if not already done
+    await _ensureInitialized();
+    
+    // Validate platform-specific constraints
     if (Platform.isIOS &&
         region.triggers.contains(GeofenceEvent.dwell) &&
         (region.triggers.length == 1)) {
       throw UnsupportedError("iOS does not support 'GeofenceEvent.dwell'");
     }
-    final List<dynamic> args = <dynamic>[
-      PluginUtilities.getCallbackHandle(callback)!.toRawHandle()
-    ];
+    
+    // Validate coordinates
+    if (region.location.latitude < -90 || region.location.latitude > 90 ||
+        region.location.longitude < -180 || region.location.longitude > 180) {
+      throw GeofencingException(
+        'Invalid coordinates: lat=${region.location.latitude}, lon=${region.location.longitude}',
+        code: 'INVALID_COORDINATES',
+      );
+    }
+    
+    // Warn about small radius
+    if (region.radius < kMinRecommendedRadius) {
+      print('GeofencingManager: Warning - radius ${region.radius}m is below '
+          'recommended minimum of ${kMinRecommendedRadius}m for reliable detection');
+    }
+    
+    // Check platform-specific limits
+    final currentGeofences = await getRegisteredGeofenceIds();
+    final maxGeofences = Platform.isIOS ? kMaxGeofencesIOS : kMaxGeofencesAndroid;
+    final isReplacing = currentGeofences.contains(region.id);
+    
+    if (!isReplacing && currentGeofences.length >= maxGeofences) {
+      throw GeofencingException(
+        'Maximum number of geofences ($maxGeofences) reached. '
+        'Remove some geofences before adding new ones.',
+        code: 'MAX_GEOFENCES_REACHED',
+        details: {'current': currentGeofences.length, 'max': maxGeofences},
+      );
+    }
+    
+    final callbackHandle = PluginUtilities.getCallbackHandle(callback);
+    if (callbackHandle == null) {
+      throw GeofencingException(
+        'Failed to get callback handle. Ensure callback is a top-level or static function.',
+        code: 'CALLBACK_HANDLE_ERROR',
+      );
+    }
+    
+    final List<dynamic> args = <dynamic>[callbackHandle.toRawHandle()];
     args.addAll(region._toArgs());
-    await _channel.invokeMethod('GeofencingPlugin.registerGeofence', args);
+    
+    try {
+      await _channel.invokeMethod('GeofencingPlugin.registerGeofence', args);
+    } on PlatformException catch (e) {
+      throw GeofencingException(
+        e.message ?? 'Failed to register geofence',
+        code: e.code,
+        details: e.details,
+      );
+    }
   }
 
-  /// get all geofence identifiers
-  static Future<List<String>> getRegisteredGeofenceIds() async =>
-      List<String>.from(await _channel
-          .invokeMethod('GeofencingPlugin.getRegisteredGeofenceIds'));
+  /// Get all registered geofence identifiers.
+  /// 
+  /// Returns an empty list if no geofences are registered or if the plugin
+  /// hasn't been initialized.
+  static Future<List<String>> getRegisteredGeofenceIds() async {
+    try {
+      // Don't require initialization for this query
+      final result = await _channel
+          .invokeMethod('GeofencingPlugin.getRegisteredGeofenceIds');
+      return List<String>.from(result ?? []);
+    } catch (e) {
+      print('GeofencingManager: Error getting registered geofence IDs: $e');
+      return <String>[];
+    }
+  }
 
   /// Stop receiving geofence events for a given [GeofenceRegion].
   static Future<bool> removeGeofence(GeofenceRegion region) async =>
@@ -164,6 +288,39 @@ class GeofencingManager {
 
   /// Stop receiving geofence events for an identifier associated with a
   /// geofence region.
-  static Future<bool> removeGeofenceById(String id) async => await _channel
-      .invokeMethod('GeofencingPlugin.removeGeofence', <dynamic>[id]);
+  /// 
+  /// Returns true if the geofence was successfully removed, false if it
+  /// didn't exist or couldn't be removed.
+  static Future<bool> removeGeofenceById(String id) async {
+    try {
+      final result = await _channel
+          .invokeMethod('GeofencingPlugin.removeGeofence', <dynamic>[id]);
+      return result == true;
+    } on PlatformException catch (e) {
+      print('GeofencingManager: Error removing geofence "$id": ${e.message}');
+      return false;
+    }
+  }
+  
+  /// Remove all registered geofences.
+  /// 
+  /// Returns the number of geofences successfully removed.
+  static Future<int> removeAllGeofences() async {
+    final ids = await getRegisteredGeofenceIds();
+    int removed = 0;
+    for (final id in ids) {
+      if (await removeGeofenceById(id)) {
+        removed++;
+      }
+    }
+    return removed;
+  }
+  
+  /// Check if the geofencing service is available on this device.
+  /// 
+  /// Returns true if geofencing can be used.
+  static bool get isSupported => Platform.isAndroid || Platform.isIOS;
+  
+  /// Get the maximum number of geofences allowed on this platform.
+  static int get maxGeofences => Platform.isIOS ? kMaxGeofencesIOS : kMaxGeofencesAndroid;
 }

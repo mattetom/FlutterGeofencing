@@ -12,36 +12,18 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
-import io.flutter.view.FlutterMain
+import io.flutter.FlutterInjector
 
 
 class GeofencingBroadcastReceiver : BroadcastReceiver() {
     private val TAG = "GeoBroadcastReceiver"
 
     override fun onReceive(context: Context, intent: Intent) {
-        //val geofencingEvent = GeofencingEvent.fromIntent(intent) ?: return
-
         Log.v(TAG, context.getString(R.string.geofence_triggered))
 
-        // Get the local notification manager.
-        /*val notificationManager = ContextCompat.getSystemService(
-                context,
-                NotificationManager::class.java
-            ) as NotificationManager
-
-        if (geofencingEvent.geofenceTransition == Geofence.GEOFENCE_TRANSITION_ENTER) {
-            notificationManager.sendGeofenceEnteredNotification(
-                context, 0
-            )
-        }
-
-        if (geofencingEvent.geofenceTransition == Geofence.GEOFENCE_TRANSITION_EXIT) {
-            notificationManager.sendGeofenceExitedNotification(
-                context, 0
-            )
-        }*/
-        FlutterMain.startInitialization(context)
-        FlutterMain.ensureInitializationComplete(context, null)
+        val flutterLoader = FlutterInjector.instance().flutterLoader()
+        flutterLoader.startInitialization(context)
+        flutterLoader.ensureInitializationComplete(context, null)
 
         GeofencingService.enqueueWork(context, intent)
     }
