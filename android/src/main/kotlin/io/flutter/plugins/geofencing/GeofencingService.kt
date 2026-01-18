@@ -136,8 +136,8 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
             location?.latitude ?: 0,
             location?.longitude ?: 0
         )
-        val geofenceUpdateList = listOf(callbackHandle,
-                triggeringGeofences,
+        val geofenceUpdateList = listOf<Any>(callbackHandle,
+                triggeringGeofences ?: emptyList<String>(),
                 locationList,
                 geofenceTransition)
 
