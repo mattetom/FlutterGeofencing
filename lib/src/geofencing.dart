@@ -50,8 +50,6 @@ int geofenceEventToInt(GeofenceEvent e) {
       return _kExitEvent;
     case GeofenceEvent.dwell:
       return _kDwellEvent;
-    default:
-      throw UnimplementedError();
   }
 }
 

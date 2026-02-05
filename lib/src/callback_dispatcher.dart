@@ -18,9 +18,10 @@ void callbackDispatcher() {
 
   _backgroundChannel.setMethodCallHandler((MethodCall call) async {
     try {
-      final List<dynamic> args = call.arguments;
-      
-      if (args == null || args.length < 4) {
+      final List<dynamic> args =
+          (call.arguments as List<dynamic>?) ?? <dynamic>[];
+
+      if (args.length < 4) {
         print('GeofencingPlugin: Invalid callback arguments received');
         return;
       }
