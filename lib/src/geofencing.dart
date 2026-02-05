@@ -7,9 +7,9 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/services.dart';
-import 'package:geofencing/src/callback_dispatcher.dart';
-import 'package:geofencing/src/location.dart';
-import 'package:geofencing/src/platform_settings.dart';
+import 'package:geofencing_service/src/callback_dispatcher.dart';
+import 'package:geofencing_service/src/location.dart';
+import 'package:geofencing_service/src/platform_settings.dart';
 
 const int _kEnterEvent = 1;
 const int _kExitEvent = 2;

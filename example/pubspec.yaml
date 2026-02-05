@@ -19,7 +19,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  geofencing:
+  geofencing_service:
     path: ../
 
 # For information on the generic Dart part of this file, see the
