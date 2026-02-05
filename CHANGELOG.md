@@ -1,4 +1,5 @@
 ## Changelog for 1.0.0:
+* Migrated to null safety.
 * Fixed PendingIntent collision bug (multiple geofences now work correctly)
 * Fixed queue wrapping bug causing malformed events
 * Fixed WakeLock leak in IsolateHolderService
