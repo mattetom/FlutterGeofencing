@@ -7,5 +7,7 @@
 
 @interface GeofencingPlugin : NSObject<FlutterPlugin, CLLocationManagerDelegate>
 
++ (void)setPluginRegistrantCallback:(FlutterPluginRegistrantCallback)callback;
+
 @end
 #endif
