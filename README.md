@@ -32,7 +32,7 @@ dependencies:
 ## Usage
 
 ```dart
-import 'package:geofencing_service/geofencing.dart';
+import 'package:geofencing_service/geofencing_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 @pragma('vm:entry-point')
