@@ -1,16 +1,33 @@
-# geofencing_example
+# Example: `geofencing_service`
 
-Demonstrates how to use the geofencing plugin.
+Sample app that uses the [`geofencing_service`](../README.md) plugin via `path: ../` in this repository.
 
-## Getting Started
+## What it does
+- Requests location permissions (when in use, and “always” where required).
+- Initializes `GeofencingManager` and registers one or more test regions.
+- Demonstrates the APIs and, depending on the code, local notifications when regions are entered or left.
 
-This project is a starting point for a Flutter application.
+## Running
+From the `example/` directory:
 
-A few resources to get you started if this is your first Flutter project:
+```bash
+flutter pub get
+flutter run
+```
 
-- [Lab: Write your first Flutter app](https://flutter.dev/docs/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://flutter.dev/docs/cookbook)
+### iOS
+After `flutter pub get`, when you change the plugin or native dependencies:
 
-For help getting started with Flutter, view our
-[online documentation](https://flutter.dev/docs), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+cd ios
+pod install
+cd ..
+```
+
+The sample already wires `AppDelegate` / `Info.plist` for `GeofencingPlugin` — see the [plugin README](../README.md#ios).
+
+## Supporting dependencies
+The example typically includes `permission_handler` and, when used, `flutter_local_notifications` to make background events obvious. They are not required by the package itself, only for the demo.
+
+## Full documentation
+See the [main plugin README](../README.md).

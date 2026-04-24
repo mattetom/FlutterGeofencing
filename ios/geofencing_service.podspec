@@ -4,14 +4,16 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'geofencing_service'
-  s.version          = '1.0.0'
-  s.summary          = 'A new flutter plugin project.'
+  s.version          = '1.1.0'
+  s.summary          = 'Geofencing plugin for Flutter (enter, exit, dwell, background).'
   s.description      = <<-DESC
-A new flutter plugin project.
+Register circular geofences and receive events in foreground or background
+via a dedicated Dart callback. Supports Android and iOS with platform limits
+and optional diagnostics (Dart API).
                        DESC
-  s.homepage         = 'http://example.com'
+  s.homepage         = 'https://github.com/mattetom/FlutterGeofencing'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.author           = 'Matteo Tomasini'
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.public_header_files = 'Classes/**/*.h'

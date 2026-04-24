@@ -1,35 +1,44 @@
-# Geofencing
+# geofencing_service
 
-Flutter plugin to register circular geofences and receive **enter**, **exit** (and **dwell** on Android) events, including background execution via a dedicated callback dispatcher.
+[![pub package](https://img.shields.io/pub/v/geofencing_service.svg)](https://pub.dev/packages/geofencing_service)
+
+Flutter plugin for **circular geofences**: **enter**, **exit**, and (on Android) **dwell** events, with background execution through a dedicated callback dispatcher.
 
 ## Status
-This package is **actively maintained**.
+This package is **actively maintained** ([repository](https://github.com/mattetom/FlutterGeofencing), [issues](https://github.com/mattetom/FlutterGeofencing/issues)).
 
 ## Features
-- Register/remove geofences with unique IDs.
-- Background callback execution with robust error handling.
-- Platform limits and validation handled safely.
-- Android‑specific settings (initial trigger, loitering, responsiveness).
+- Register and remove geofences with unique IDs.
+- Background callbacks and robust error handling.
+- Platform limits and coordinate/radius validation.
+- Android-specific options (initial trigger, loitering, notification responsiveness).
+- **1.1.0+**: diagnostic stream, registration verification, Android recovery, and iOS reliability fixes (see [CHANGELOG](CHANGELOG.md)).
 
 ## Platform support
-- Android ✅
-- iOS ✅
+- Android
+- iOS
 
 ## Important notes
-- iOS supports a maximum of **20** geofences; Android **100**.
-- iOS **does not support** `GeofenceEvent.dwell`.
-- Recommended minimum radius: **100m** for reliable detection.
-- The callback must be **top‑level** or **static** and annotated with `@pragma('vm:entry-point')`.
+- iOS allows at most **20** geofences; Android **100**.
+- iOS does **not** support `GeofenceEvent.dwell`.
+- Use a radius of at least **100 m** for reliable detection.
+- The callback must be **top-level** or **static** and annotated with `@pragma('vm:entry-point')`.
 
 ## Getting started
-Add the dependency to your `pubspec.yaml`:
+Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  geofencing: ^0.3.1
+  geofencing_service: ^1.1.0
 ```
 
-## Usage
+Import:
+
+```dart
+import 'package:geofencing_service/geofencing_service.dart';
+```
+
+## Usage example
 
 ```dart
 import 'package:geofencing_service/geofencing_service.dart';
@@ -37,20 +46,16 @@ import 'package:permission_handler/permission_handler.dart';
 
 @pragma('vm:entry-point')
 void geofenceCallback(List<String> ids, Location l, GeofenceEvent e) {
-  // Handle events here (log, notification, state update, etc.)
   print('Geofence: $ids, location: $l, event: $e');
 }
 
 Future<void> setupGeofencing() async {
-  // 1) Request permissions
   final whenInUse = await Permission.locationWhenInUse.request();
   final always = await Permission.locationAlways.request();
   if (!whenInUse.isGranted || !always.isGranted) return;
 
-  // 2) Initialize the plugin
   await GeofencingManager.initialize();
 
-  // 3) Register a geofence
   final region = GeofenceRegion(
     'home',
     45.675120,
@@ -69,32 +74,19 @@ Future<void> setupGeofencing() async {
 ```
 
 ## API overview
-- `GeofencingManager.initialize()`
-  Initializes the service and the callback dispatcher.
+- `GeofencingManager.initialize()` — initializes the service and dispatcher.
+- `GeofencingManager.registerGeofence(region, callback)` — register; errors surface as `GeofencingException` / `PlatformException`.
+- `GeofencingManager.getRegisteredGeofenceIds()` — list of IDs.
+- `GeofencingManager.removeGeofenceById` / `removeGeofence` / `removeAllGeofences`.
+- `GeofencingManager.isSupported` — `true` on Android/iOS.
+- `GeofencingManager.maxGeofences` — platform limit.
+- `GeofencingManager.diagnostics` — `Stream<GeofencingDiagnostic>` (1.1.0+).
+- `GeofencingManager.verifyRegistrations(expected)` — verification report (1.1.0+).
+- `GeofencingManager.resetBackgroundEngine()` — Android only, recovery (1.1.0+).
 
-- `GeofencingManager.registerGeofence(region, callback)`
-  Registers a geofence. Validates coordinates, platform limits, and returns errors as `GeofencingException`.
+## Android
 
-- `GeofencingManager.getRegisteredGeofenceIds()`
-  Returns IDs for all registered geofences.
-
-- `GeofencingManager.removeGeofenceById(id)` / `removeGeofence(region)`
-  Removes a specific geofence.
-
-- `GeofencingManager.removeAllGeofences()`
-  Removes all geofences.
-
-- `GeofencingManager.isSupported`
-  `true` on Android/iOS.
-
-- `GeofencingManager.maxGeofences`
-  Platform‑specific limit.
-
-## Android setup
-
-### Manifest
-Add to `AndroidManifest.xml`:
-
+### `AndroidManifest.xml`
 ```xml
 <receiver
     android:name="io.flutter.plugins.geofencing.GeofencingBroadcastReceiver"
@@ -111,8 +103,8 @@ Add to `AndroidManifest.xml`:
 <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 ```
 
-### Application class
-Create `Application.kt` or `Application.java` alongside `MainActivity`:
+### `Application` class
+Create `Application.kt` or `Application.java` next to `MainActivity`:
 
 ```kotlin
 class Application : FlutterApplication(), PluginRegistrantCallback {
@@ -126,7 +118,7 @@ class Application : FlutterApplication(), PluginRegistrantCallback {
 }
 ```
 
-or:
+Or in Java:
 
 ```java
 public class Application extends FlutterApplication implements PluginRegistrantCallback {
@@ -150,11 +142,9 @@ Reference it in the manifest:
     ...
 ```
 
-## iOS setup
+## iOS
 
-### Info.plist
-Add permission strings:
-
+### `Info.plist`
 ```xml
 <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 <string>YOUR DESCRIPTION HERE</string>
@@ -171,24 +161,22 @@ Enable background location:
 </array>
 ```
 
-### Bridging header
-In `Runner-Bridging-Header.h`:
+### Header / bridging
+In `Runner-Bridging-Header.h` (Swift) or wherever you import the plugin header:
 
-```h
-#import <geofencing/GeofencingPlugin.h>
+```objc
+#import <geofencing_service/GeofencingPlugin.h>
 ```
 
-### AppDelegate
-In `AppDelegate.swift`:
-
+### `AppDelegate` (Swift)
 ```swift
 GeofencingPlugin.setPluginRegistrantCallback { (registry) in
   GeneratedPluginRegistrant.register(with: registry)
 }
 ```
 
-## Permissions (recommended)
-If you use `permission_handler`, add to `Podfile`:
+## Permissions (with `permission_handler`)
+In the app’s `Podfile`, if you use `permission_handler`’s iOS permission macros:
 
 ```ruby
 post_install do |installer|
@@ -205,12 +193,12 @@ post_install do |installer|
 end
 ```
 
-## Example
-See `example/lib/main.dart` for a working app with UI, permission handling, and local notifications.
+## Example app
+The [`example/`](example/) directory contains a sample with UI, permissions, and local notifications. After changing dependencies, run `pod install` in the example’s `ios` folder on iOS if needed.
 
-## Issues and contributions
-Please open an issue or PR if you find a bug or want to improve the plugin.
+## License
+See [LICENSE](LICENSE) (BSD-style license derived from the Chromium project).
 
-## Learn more
-What is geofencing? See Android documentation:
-https://developer.android.com/training/location/geofencing
+## References
+- [Geofencing on Android (official documentation)](https://developer.android.com/training/location/geofencing)
+- [Publishing to pub.dev](PUBLISHING.md) (for maintainers)

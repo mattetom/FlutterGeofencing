@@ -1,7 +1,7 @@
 #import "AppDelegate.h"
 #import "GeneratedPluginRegistrant.h"
 
-#import <geofencing/GeofencingPlugin.h>
+#import <geofencing_service/GeofencingPlugin.h>
 
 void registerPlugins(NSObject<FlutterPluginRegistry>* registry) {
   [GeneratedPluginRegistrant registerWithRegistry:registry];

@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.JobIntentService
 import io.flutter.plugin.common.MethodChannel
@@ -42,9 +43,29 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
         @JvmStatic
         private val sServiceStarted = AtomicBoolean(false)
 
+        // Safety net: if the background isolate never reports
+        // `GeofencingService.initialized`, surface that so the host app can
+        // show diagnostics / force a reset on next cold start.
+        private const val ISOLATE_INIT_TIMEOUT_MS = 10_000L
+        @JvmStatic
+        private val sInitTimeoutHandler = Handler(Looper.getMainLooper())
+        @JvmStatic
+        private var sInitTimeoutRunnable: Runnable? = null
+
         @JvmStatic
         fun enqueueWork(context: Context, work: Intent) {
             enqueueWork(context, GeofencingService::class.java, JOB_ID, work)
+        }
+
+        @JvmStatic
+        fun resetBackgroundEngine() {
+            synchronized(sServiceStarted) {
+                sInitTimeoutRunnable?.let { sInitTimeoutHandler.removeCallbacks(it) }
+                sInitTimeoutRunnable = null
+                sBackgroundFlutterEngine?.destroy()
+                sBackgroundFlutterEngine = null
+                sServiceStarted.set(false)
+            }
         }
     }
 
@@ -78,6 +99,23 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
                 )
                 sBackgroundFlutterEngine!!.getDartExecutor().executeDartCallback(args)
                 IsolateHolderService.setBackgroundFlutterEngine(sBackgroundFlutterEngine)
+
+                // Watchdog: if the Dart isolate doesn't report back as
+                // initialized within ISOLATE_INIT_TIMEOUT_MS, emit a
+                // diagnostic so the host app can notify the user / reset.
+                sInitTimeoutRunnable?.let { sInitTimeoutHandler.removeCallbacks(it) }
+                val runnable = Runnable {
+                    if (!sServiceStarted.get()) {
+                        Log.e(TAG, "Background isolate did not initialize within ${ISOLATE_INIT_TIMEOUT_MS}ms")
+                        GeofencingPlugin.emitDiagnostic(
+                            "isolateInitTimeout",
+                            mapOf("timeoutMs" to ISOLATE_INIT_TIMEOUT_MS)
+                        )
+                    }
+                    sInitTimeoutRunnable = null
+                }
+                sInitTimeoutRunnable = runnable
+                sInitTimeoutHandler.postDelayed(runnable, ISOLATE_INIT_TIMEOUT_MS)
             }
         }
         mBackgroundChannel = MethodChannel(sBackgroundFlutterEngine!!.getDartExecutor().getBinaryMessenger(),
@@ -89,6 +127,8 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
        when(call.method) {
             "GeofencingService.initialized" -> {
                 synchronized(sServiceStarted) {
+                    sInitTimeoutRunnable?.let { sInitTimeoutHandler.removeCallbacks(it) }
+                    sInitTimeoutRunnable = null
                     while (!queue.isEmpty()) {
                         mBackgroundChannel.invokeMethod("", queue.remove())
                     }

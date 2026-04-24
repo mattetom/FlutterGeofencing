@@ -14,6 +14,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingClient
@@ -48,6 +50,133 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     val PERSISTENT_GEOFENCES_IDS = "persistent_geofences_ids"
     @JvmStatic
     private val sGeofenceCacheLock = Object()
+
+    // Method channel back to the host app's main isolate. Used to emit
+    // diagnostic events (registration recovered/failed after retry, etc.).
+    @JvmStatic
+    private var sMainChannel: MethodChannel? = null
+
+    // Exponential backoff schedule for transient registration failures
+    // (e.g. GEOFENCE_NOT_AVAILABLE when location services are momentarily off).
+    @JvmStatic
+    private val sRetryDelaysMs = longArrayOf(2_000L, 4_000L, 8_000L, 30_000L)
+
+    @JvmStatic
+    private val sRetryHandler = Handler(Looper.getMainLooper())
+
+    @JvmStatic
+    private val sPendingRetries = HashMap<String, Runnable>()
+
+    @JvmStatic
+    private fun isTransientGeofenceError(code: Int): Boolean =
+      code == com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE
+
+    @JvmStatic
+    fun emitDiagnostic(event: String, payload: Map<String, Any?>) {
+      val channel = sMainChannel ?: return
+      Handler(Looper.getMainLooper()).post {
+        try {
+          channel.invokeMethod("GeofencingPlugin.$event", payload)
+        } catch (t: Throwable) {
+          Log.w(TAG, "Failed to emit diagnostic '$event': ${t.message}")
+        }
+      }
+    }
+
+    @JvmStatic
+    private fun cancelPendingRetry(id: String) {
+      synchronized(sPendingRetries) {
+        val pending = sPendingRetries.remove(id)
+        if (pending != null) {
+          sRetryHandler.removeCallbacks(pending)
+        }
+      }
+    }
+
+    @JvmStatic
+    private fun scheduleRetry(
+      context: Context,
+      geofencingClient: GeofencingClient,
+      args: ArrayList<*>,
+      nextAttempt: Int
+    ) {
+      val id = args[1] as String
+      if (nextAttempt >= sRetryDelaysMs.size) {
+        Log.w(TAG, "Geofence '$id' registration retries exhausted")
+        synchronized(sPendingRetries) { sPendingRetries.remove(id) }
+        emitDiagnostic(
+          "registrationFailedFinal",
+          mapOf("id" to id, "attempts" to nextAttempt)
+        )
+        return
+      }
+      val delay = sRetryDelaysMs[nextAttempt]
+      val runnable = Runnable {
+        synchronized(sPendingRetries) { sPendingRetries.remove(id) }
+        retryRegisterGeofence(context, geofencingClient, args, nextAttempt)
+      }
+      synchronized(sPendingRetries) {
+        val existing = sPendingRetries[id]
+        if (existing != null) {
+          sRetryHandler.removeCallbacks(existing)
+        }
+        sPendingRetries[id] = runnable
+      }
+      Log.i(TAG, "Scheduling geofence '$id' retry #${nextAttempt + 1} in ${delay}ms")
+      sRetryHandler.postDelayed(runnable, delay)
+    }
+
+    @JvmStatic
+    private fun retryRegisterGeofence(
+      context: Context,
+      geofencingClient: GeofencingClient,
+      args: ArrayList<*>,
+      attempt: Int
+    ) {
+      val id = args[1] as String
+      val callbackHandle = args[0] as Long
+      val lat = args[2] as Double
+      val long = args[3] as Double
+      val radius = (args[4] as Number).toFloat()
+      val fenceTriggers = args[5] as Int
+      val initialTriggers = args[6] as Int
+      val expirationDuration = (args[7] as Int).toLong()
+      val loiteringDelay = args[8] as Int
+      val notificationResponsiveness = args[9] as Int
+      val geofence = Geofence.Builder()
+        .setRequestId(id)
+        .setCircularRegion(lat, long, radius)
+        .setTransitionTypes(fenceTriggers)
+        .setLoiteringDelay(loiteringDelay)
+        .setNotificationResponsiveness(notificationResponsiveness)
+        .setExpirationDuration(expirationDuration)
+        .build()
+      geofencingClient.addGeofences(
+        getGeofencingRequest(geofence, initialTriggers),
+        getGeofencePendingIndent(context, callbackHandle, id)
+      )?.run {
+        addOnSuccessListener {
+          Log.i(TAG, "Geofence '$id' retry succeeded on attempt ${attempt + 1}")
+          addGeofenceToCache(context, id, args)
+          emitDiagnostic(
+            "registrationRecovered",
+            mapOf("id" to id, "attempts" to attempt + 1)
+          )
+        }
+        addOnFailureListener { exception ->
+          val code = (exception as? com.google.android.gms.common.api.ApiException)?.statusCode ?: -1
+          Log.w(TAG, "Geofence '$id' retry #${attempt + 1} failed (code=$code)")
+          if (isTransientGeofenceError(code)) {
+            scheduleRetry(context, geofencingClient, args, attempt + 1)
+          } else {
+            emitDiagnostic(
+              "registrationFailedFinal",
+              mapOf("id" to id, "code" to code, "attempts" to attempt + 1)
+            )
+          }
+        }
+      }
+    }
 
     @JvmStatic
     fun reRegisterAfterReboot(context: Context) {
@@ -105,6 +234,10 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
         Log.w(TAG, msg)
         result?.error(msg, null, null)
       }
+      // If another registration for this id was retrying in the background,
+      // cancel it — this new call supersedes the pending work.
+      cancelPendingRetry(id)
+
       geofencingClient.addGeofences(getGeofencingRequest(geofence, initialTriggers),
               getGeofencePendingIndent(context, callbackHandle, id))?.run {
         addOnSuccessListener {
@@ -122,6 +255,15 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
           val errorMessage = getGeofenceErrorMessage(errorCode)
           Log.e(TAG, "Failed to add geofence '$id': $errorMessage (code: $errorCode)")
           result?.error("GEOFENCE_ERROR", errorMessage, mapOf("code" to errorCode, "id" to id))
+
+          // On transient failures (location services off, no data connectivity)
+          // retry with exponential backoff so we can recover silently once the
+          // underlying condition clears. Non-transient failures (permissions,
+          // too many geofences) are surfaced to the caller and left alone.
+          if (cache && isTransientGeofenceError(errorCode)) {
+            @Suppress("UNCHECKED_CAST")
+            scheduleRetry(context, geofencingClient, args as ArrayList<*>, 0)
+          }
         }
       }
     }
@@ -198,8 +340,11 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
               .putExtra("geofence_id", geofenceId)
       // Use geofence ID hash as requestCode to ensure each geofence gets a unique PendingIntent
       val requestCode = geofenceId.hashCode()
+      // Geofence PendingIntents never need to be mutated by external
+      // components, so prefer FLAG_IMMUTABLE on Android 12+ (Google's
+      // recommended default for security).
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+        return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
       } else {
         return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT)
       }
@@ -211,6 +356,11 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
                                args: ArrayList<*>?,
                                result: Result) {
       val ids = listOf(args!![0] as String)
+      // Cancel any in-flight retry for these ids so they don't re-register
+      // the geofence after the caller explicitly asked to remove it.
+      for (id in ids) {
+        cancelPendingRetry(id)
+      }
       geofencingClient.removeGeofences(ids).run {
         addOnSuccessListener {
           for (id in ids) {
@@ -282,9 +432,15 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     mGeofencingClient = LocationServices.getGeofencingClient(mContext!!)
     val channel = MethodChannel(binding.getBinaryMessenger(), "plugins.flutter.io/geofencing_plugin")
     channel.setMethodCallHandler(this)
+    // Keep a static reference so the retry/diagnostic helpers in the
+    // companion object can post events back to the main isolate.
+    sMainChannel = channel
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    if (sMainChannel != null) {
+      sMainChannel = null
+    }
     mContext = null
     mGeofencingClient = null
   }
@@ -322,6 +478,10 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
               args,
               result)
       "GeofencingPlugin.getRegisteredGeofenceIds" -> getRegisteredGeofenceIds(mContext!!, result)
+      "GeofencingPlugin.resetBackgroundEngine" -> {
+        GeofencingService.resetBackgroundEngine()
+        result.success(true)
+      }
       else -> result.notImplemented()
     }
   }

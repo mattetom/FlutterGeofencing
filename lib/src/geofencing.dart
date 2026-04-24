@@ -41,6 +41,51 @@ class GeofencingException implements Exception {
   String toString() => 'GeofencingException: $message${code != null ? ' (code: $code)' : ''}';
 }
 
+/// Categories of events emitted by [GeofencingManager.diagnostics].
+///
+/// `registrationRecovered` and `registrationFailedFinal` come from the
+/// Android retry loop (transient `GEOFENCE_NOT_AVAILABLE` failures recovered
+/// silently once services are back, or exhausted all retries).
+///
+/// `monitoringFailed` is emitted by iOS when `CLLocationManager`
+/// asynchronously drops a region after it was accepted.
+///
+/// `isolateInitTimeout` is emitted on Android when the background Dart
+/// isolate fails to report back within the watchdog window — this strongly
+/// suggests the host app should reset the background engine on its next
+/// cold start and investigate callback initialization.
+enum GeofencingDiagnosticKind {
+  registrationRecovered,
+  registrationFailedFinal,
+  monitoringFailed,
+  isolateInitTimeout,
+  unknown,
+}
+
+/// A diagnostic event surfaced by the native geofencing layer. Host apps can
+/// subscribe to [GeofencingManager.diagnostics] to react (re-register,
+/// notify the user, log to crash reporters) to states that would otherwise
+/// be silent.
+class GeofencingDiagnostic {
+  final GeofencingDiagnosticKind kind;
+  final String? id;
+  final String? code;
+  final String? message;
+  final Map<String, dynamic> raw;
+
+  GeofencingDiagnostic({
+    required this.kind,
+    this.id,
+    this.code,
+    this.message,
+    this.raw = const {},
+  });
+
+  @override
+  String toString() =>
+      'GeofencingDiagnostic(${kind.name}, id=$id, code=$code, message=$message)';
+}
+
 // Internal.
 int geofenceEventToInt(GeofenceEvent e) {
   switch (e) {
@@ -123,24 +168,77 @@ class GeofencingManager {
 
   /// Whether the plugin has been initialized
   static bool _initialized = false;
-  
+
   /// Completer for initialization to prevent multiple concurrent initializations
   static Completer<void>? _initCompleter;
 
+  static final StreamController<GeofencingDiagnostic> _diagnosticsController =
+      StreamController<GeofencingDiagnostic>.broadcast();
+
+  /// Stream of diagnostic events emitted by the native layer.
+  ///
+  /// Subscribe from the main isolate early in app startup (e.g. in `main()`
+  /// after `GeofencingManager.initialize()`) so that events delivered while
+  /// the app is foregrounded are observed and can be logged / surfaced to
+  /// the user.
+  static Stream<GeofencingDiagnostic> get diagnostics =>
+      _diagnosticsController.stream;
+
+  static bool _diagnosticsHandlerInstalled = false;
+
+  static void _installDiagnosticsHandler() {
+    if (_diagnosticsHandlerInstalled) return;
+    _diagnosticsHandlerInstalled = true;
+    _channel.setMethodCallHandler((MethodCall call) async {
+      if (!call.method.startsWith('GeofencingPlugin.')) return null;
+      final eventName = call.method.substring('GeofencingPlugin.'.length);
+      final Map<String, dynamic> payload =
+          (call.arguments is Map)
+              ? Map<String, dynamic>.from(call.arguments as Map)
+              : <String, dynamic>{};
+      final kind = _kindFromEvent(eventName);
+      _diagnosticsController.add(GeofencingDiagnostic(
+        kind: kind,
+        id: payload['id']?.toString(),
+        code: payload['code']?.toString() ?? payload['errorCode']?.toString(),
+        message: payload['message']?.toString(),
+        raw: payload,
+      ));
+      return null;
+    });
+  }
+
+  static GeofencingDiagnosticKind _kindFromEvent(String name) {
+    switch (name) {
+      case 'registrationRecovered':
+        return GeofencingDiagnosticKind.registrationRecovered;
+      case 'registrationFailedFinal':
+        return GeofencingDiagnosticKind.registrationFailedFinal;
+      case 'monitoringFailed':
+        return GeofencingDiagnosticKind.monitoringFailed;
+      case 'isolateInitTimeout':
+        return GeofencingDiagnosticKind.isolateInitTimeout;
+      default:
+        return GeofencingDiagnosticKind.unknown;
+    }
+  }
+
   /// Initialize the plugin and request relevant permissions from the user.
-  /// 
+  ///
   /// This method is safe to call multiple times - it will only initialize once.
   static Future<void> initialize() async {
     if (_initialized) return;
-    
+
     // Prevent concurrent initialization
     if (_initCompleter != null) {
       return _initCompleter!.future;
     }
-    
+
     _initCompleter = Completer<void>();
-    
+
     try {
+      _installDiagnosticsHandler();
+
       final CallbackHandle? callback =
           PluginUtilities.getCallbackHandle(callbackDispatcher);
       if (callback == null) {
@@ -149,7 +247,7 @@ class GeofencingManager {
           code: 'CALLBACK_HANDLE_ERROR',
         );
       }
-      
+
       await _channel.invokeMethod('GeofencingPlugin.initializeService',
           <dynamic>[callback.toRawHandle()]);
       _initialized = true;
@@ -321,4 +419,69 @@ class GeofencingManager {
   
   /// Get the maximum number of geofences allowed on this platform.
   static int get maxGeofences => Platform.isIOS ? kMaxGeofencesIOS : kMaxGeofencesAndroid;
+
+  /// Compare the geofences the host app expects to be registered with the
+  /// ones the platform currently reports.
+  ///
+  /// Returns the IDs the host asked about, the subset that is actually
+  /// registered right now, and the missing ones. Host apps should call this
+  /// at cold start (after [initialize]) and re-register anything that comes
+  /// back as missing — the SO can drop registrations silently on OS updates,
+  /// user storage clear, or when location permissions are revoked/restored.
+  ///
+  /// Platform notes:
+  /// - On iOS the "registered" list is read from
+  ///   `CLLocationManager.monitoredRegions`, i.e. the real OS state.
+  /// - On Android there is no public API to query the currently active
+  ///   geofences from Play Services, so "registered" reflects this plugin's
+  ///   persistent cache (updated on every successful register/remove).
+  ///   Missing entries still warrant a re-registration, which is idempotent.
+  static Future<GeofencingVerificationReport> verifyRegistrations(
+      List<String> expected) async {
+    final actual = await getRegisteredGeofenceIds();
+    final actualSet = actual.toSet();
+    final missing = <String>[
+      for (final id in expected)
+        if (!actualSet.contains(id)) id,
+    ];
+    return GeofencingVerificationReport(
+      expected: List.unmodifiable(expected),
+      registered: List.unmodifiable(actual),
+      missing: List.unmodifiable(missing),
+    );
+  }
+
+  /// Forcefully tear down the background Dart isolate on Android so the next
+  /// geofence event spins up a fresh one. Useful as a recovery action when
+  /// [GeofencingDiagnosticKind.isolateInitTimeout] has been observed.
+  ///
+  /// No-op on iOS (iOS manages the headless FlutterEngine itself and doesn't
+  /// suffer from the same race).
+  static Future<void> resetBackgroundEngine() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('GeofencingPlugin.resetBackgroundEngine');
+    } on PlatformException catch (e) {
+      print('GeofencingManager: resetBackgroundEngine failed: ${e.message}');
+    }
+  }
+}
+
+/// Result of [GeofencingManager.verifyRegistrations].
+class GeofencingVerificationReport {
+  final List<String> expected;
+  final List<String> registered;
+  final List<String> missing;
+
+  const GeofencingVerificationReport({
+    required this.expected,
+    required this.registered,
+    required this.missing,
+  });
+
+  bool get isHealthy => missing.isEmpty;
+
+  @override
+  String toString() =>
+      'GeofencingVerificationReport(expected=$expected, registered=$registered, missing=$missing)';
 }

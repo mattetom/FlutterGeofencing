@@ -63,8 +63,16 @@ static BOOL backgroundIsolateRun = NO;
     }
     result(nil);
   } else if ([@"GeofencingPlugin.registerGeofence" isEqualToString:call.method]) {
-    [self registerGeofence:arguments];
-    result(@(YES));
+    NSDictionary *registration = [self registerGeofence:arguments];
+    BOOL success = [[registration objectForKey:@"success"] boolValue];
+    if (success) {
+      result(@(YES));
+    } else {
+      NSString *code = [registration objectForKey:@"errorCode"] ?: @"GEOFENCE_ERROR";
+      NSString *message = [registration objectForKey:@"message"] ?: @"Failed to register geofence";
+      NSDictionary *details = [registration objectForKey:@"details"] ?: @{};
+      result([FlutterError errorWithCode:code message:message details:details]);
+    }
   } else if ([@"GeofencingPlugin.removeGeofence" isEqualToString:call.method]) {
     result(@([self removeGeofence:arguments]));
   } else if ([@"GeofencingPlugin.getRegisteredGeofenceIds" isEqualToString:call.method]) {
@@ -119,30 +127,45 @@ static BOOL backgroundIsolateRun = NO;
 - (void)locationManager:(CLLocationManager *)manager
     monitoringDidFailForRegion:(CLRegion *)region
                      withError:(NSError *)error {
-  NSLog(@"GeofencingPlugin: Monitoring failed for region '%@': %@", region.identifier, error.localizedDescription);
-  
-  // Remove the failed region from our callback mapping since it's not being monitored
-  if (region != nil) {
-    [self removeCallbackHandleForRegionId:region.identifier];
-  }
-  
-  // Log specific error types for debugging
+  NSString *identifier = region != nil ? region.identifier : @"";
+  NSLog(@"GeofencingPlugin: Monitoring failed for region '%@': %@", identifier, error.localizedDescription);
+
+  NSString *errorCode;
   switch (error.code) {
     case kCLErrorRegionMonitoringDenied:
-      NSLog(@"GeofencingPlugin: Location services denied for region monitoring");
+      errorCode = @"REGION_MONITORING_DENIED";
       break;
     case kCLErrorRegionMonitoringFailure:
-      NSLog(@"GeofencingPlugin: Region monitoring failure - possibly exceeded max regions (20)");
+      errorCode = @"REGION_MONITORING_FAILURE";
       break;
     case kCLErrorRegionMonitoringSetupDelayed:
-      NSLog(@"GeofencingPlugin: Region monitoring setup delayed");
+      errorCode = @"REGION_MONITORING_SETUP_DELAYED";
       break;
     case kCLErrorRegionMonitoringResponseDelayed:
-      NSLog(@"GeofencingPlugin: Region monitoring response delayed");
+      errorCode = @"REGION_MONITORING_RESPONSE_DELAYED";
       break;
     default:
-      NSLog(@"GeofencingPlugin: Unknown monitoring error code: %ld", (long)error.code);
+      errorCode = [NSString stringWithFormat:@"UNKNOWN_%ld", (long)error.code];
       break;
+  }
+
+  // Remove the failed region from our callback mapping since it's not being
+  // monitored, but keep Dart-side state so the host app can decide whether to
+  // re-register once the underlying condition (permission, services) changes.
+  if (region != nil) {
+    [self removeCallbackHandleForRegionId:identifier];
+  }
+
+  // Surface the failure to the main isolate diagnostic stream. The main
+  // channel targets the host app's main isolate; if the app is suspended the
+  // event will be delivered when it resumes.
+  if (_mainChannel != nil) {
+    [_mainChannel invokeMethod:@"GeofencingPlugin.monitoringFailed"
+                     arguments:@{
+                       @"id": identifier,
+                       @"errorCode": errorCode,
+                       @"message": error.localizedDescription ?: @"",
+                     }];
   }
 }
 
@@ -168,8 +191,14 @@ static BOOL backgroundIsolateRun = NO;
   _eventQueue = [[NSMutableArray alloc] init];
   _locationManager = [[CLLocationManager alloc] init];
   [_locationManager setDelegate:self];
-  // [_locationManager requestAlwaysAuthorization];
-  // _locationManager.allowsBackgroundLocationUpdates = YES;
+  // Authorization is requested by the host app via permission_handler at the
+  // appropriate moment in its UX flow, so we intentionally do not call
+  // requestAlwaysAuthorization here.
+  // Required for CLLocationManager to deliver region events when the app is
+  // backgrounded or terminated by the system. Must be set together with
+  // UIBackgroundModes:[location] in the host app's Info.plist.
+  _locationManager.allowsBackgroundLocationUpdates = YES;
+  _locationManager.pausesLocationUpdatesAutomatically = NO;
 
   _headlessRunner = [[FlutterEngine alloc] initWithName:@"GeofencingIsolate" project:nil allowHeadlessExecution:YES];
   _registrar = registrar;
@@ -204,7 +233,7 @@ static BOOL backgroundIsolateRun = NO;
   backgroundIsolateRun = YES;
 }
 
-- (void)registerGeofence:(NSArray *)arguments {
+- (NSDictionary *)registerGeofence:(NSArray *)arguments {
   int64_t callbackHandle = [arguments[0] longLongValue];
   NSString *identifier = arguments[1];
   double latitude = [arguments[2] doubleValue];
@@ -214,7 +243,7 @@ static BOOL backgroundIsolateRun = NO;
 
   // Check iOS region limit (max 20 regions)
   NSUInteger currentRegionCount = [[self->_locationManager monitoredRegions] count];
-  
+
   // Check if we're replacing an existing region or adding a new one
   BOOL isReplacing = NO;
   for (CLRegion *existingRegion in [self->_locationManager monitoredRegions]) {
@@ -223,25 +252,38 @@ static BOOL backgroundIsolateRun = NO;
       break;
     }
   }
-  
+
   if (!isReplacing && currentRegionCount >= 20) {
-    NSLog(@"GeofencingPlugin: Cannot register geofence '%@': iOS limit of 20 regions reached (current: %lu)", 
-          identifier, (unsigned long)currentRegionCount);
-    // Note: Consider adding a callback to notify the Dart side of this failure
-    return;
+    NSString *message = [NSString stringWithFormat:
+        @"iOS limit of 20 regions reached (current: %lu)",
+        (unsigned long)currentRegionCount];
+    NSLog(@"GeofencingPlugin: Cannot register geofence '%@': %@", identifier, message);
+    return @{
+      @"success": @(NO),
+      @"errorCode": @"IOS_REGION_LIMIT",
+      @"message": message,
+      @"details": @{@"id": identifier, @"current": @(currentRegionCount), @"max": @(20)},
+    };
   }
-  
+
   // Validate coordinates
   if (latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) {
-    NSLog(@"GeofencingPlugin: Invalid coordinates for geofence '%@': lat=%f, lon=%f", identifier, latitude, longitude);
-    return;
+    NSString *message = [NSString stringWithFormat:
+        @"Invalid coordinates: lat=%f, lon=%f", latitude, longitude];
+    NSLog(@"GeofencingPlugin: %@ for geofence '%@'", message, identifier);
+    return @{
+      @"success": @(NO),
+      @"errorCode": @"INVALID_COORDINATES",
+      @"message": message,
+      @"details": @{@"id": identifier, @"latitude": @(latitude), @"longitude": @(longitude)},
+    };
   }
-  
+
   // Validate radius (iOS minimum is ~100m for reliable detection)
   if (radius < 100.0) {
     NSLog(@"GeofencingPlugin: Warning - radius %.1fm for geofence '%@' is below recommended minimum of 100m", radius, identifier);
   }
-  
+
   // Clamp radius to iOS maximum
   double maxRadius = self->_locationManager.maximumRegionMonitoringDistance;
   if (radius > maxRadius) {
@@ -255,11 +297,12 @@ static BOOL backgroundIsolateRun = NO;
                                     identifier:identifier];
   region.notifyOnEntry = ((triggerMask & 0x1) != 0);
   region.notifyOnExit = ((triggerMask & 0x2) != 0);
-  
+
   [self setCallbackHandleForRegionId:callbackHandle regionId:identifier];
   [self->_locationManager startMonitoringForRegion:region];
-  
+
   NSLog(@"GeofencingPlugin: Registered geofence '%@' at (%.6f, %.6f) with radius %.1fm", identifier, latitude, longitude, radius);
+  return @{@"success": @(YES), @"details": @{@"id": identifier}};
 }
 
 - (BOOL)removeGeofence:(NSArray *)arguments {
