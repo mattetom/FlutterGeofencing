@@ -68,8 +68,18 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     private val sPendingRetries = HashMap<String, Runnable>()
 
     @JvmStatic
-    private fun isTransientGeofenceError(code: Int): Boolean =
-      code == com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE
+    private fun isTransientGeofenceError(code: Int): Boolean = when (code) {
+      com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE -> true
+      // CommonStatusCodes that can self-heal: GMS service not yet connected,
+      // a network blip, or an internal error inside Play Services. We don't
+      // include DEVELOPER_ERROR (10) — that almost always means the package
+      // is mis-registered or a permission/parameter problem the OS won't
+      // forgive on retry.
+      com.google.android.gms.common.api.CommonStatusCodes.NETWORK_ERROR -> true
+      com.google.android.gms.common.api.CommonStatusCodes.API_NOT_CONNECTED -> true
+      com.google.android.gms.common.api.CommonStatusCodes.INTERNAL_ERROR -> true
+      else -> false
+    }
 
     @JvmStatic
     fun emitDiagnostic(event: String, payload: Map<String, Any?>) {
@@ -227,12 +237,36 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
               .setNotificationResponsiveness(notificationResponsiveness)
               .setExpirationDuration(expirationDuration)
               .build()
+      // Verify runtime permissions BEFORE calling addGeofences, otherwise
+      // Play Services responds with the opaque DEVELOPER_ERROR (code 10).
+      // ACCESS_FINE_LOCATION is mandatory on every API level; on Android 10+
+      // (API 29) ACCESS_BACKGROUND_LOCATION is required for background
+      // geofence delivery — without it Play Services rejects the request
+      // even when the app is in the foreground at registration time.
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-              (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-                      == PackageManager.PERMISSION_DENIED)) {
+              context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                      == PackageManager.PERMISSION_DENIED) {
         val msg = "'registerGeofence' requires the ACCESS_FINE_LOCATION permission."
         Log.w(TAG, msg)
-        result?.error(msg, null, null)
+        result?.error(
+          "PERMISSION_DENIED_FINE_LOCATION",
+          msg,
+          mapOf("id" to id, "permission" to Manifest.permission.ACCESS_FINE_LOCATION),
+        )
+        return
+      }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+              context.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                      == PackageManager.PERMISSION_DENIED) {
+        val msg = "'registerGeofence' requires ACCESS_BACKGROUND_LOCATION on Android 10+. " +
+          "The user must select 'Allow all the time' in the location permission settings."
+        Log.w(TAG, msg)
+        result?.error(
+          "PERMISSION_DENIED_BACKGROUND_LOCATION",
+          msg,
+          mapOf("id" to id, "permission" to Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+        )
+        return
       }
       // If another registration for this id was retrying in the background,
       // cancel it — this new call supersedes the pending work.
@@ -340,11 +374,14 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
               .putExtra("geofence_id", geofenceId)
       // Use geofence ID hash as requestCode to ensure each geofence gets a unique PendingIntent
       val requestCode = geofenceId.hashCode()
-      // Geofence PendingIntents never need to be mutated by external
-      // components, so prefer FLAG_IMMUTABLE on Android 12+ (Google's
-      // recommended default for security).
+      // Geofencing PendingIntents MUST be mutable: Play Services writes the
+      // transition type, triggering geofences and triggering location into
+      // the broadcast Intent extras when an event fires (see
+      // GeofencingEvent.fromIntent). Marking the intent FLAG_IMMUTABLE
+      // causes addGeofences to reject the registration with
+      // CommonStatusCodes.DEVELOPER_ERROR (10) on Android 12+.
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
       } else {
         return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT)
       }
@@ -414,6 +451,7 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     @JvmStatic
     private fun getGeofenceErrorMessage(errorCode: Int): String {
       return when (errorCode) {
+        // Geofencing-specific status codes (1000+).
         com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE ->
           "Geofence service is not available now. Typically this is because the device has no data connection."
         com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_TOO_MANY_GEOFENCES ->
@@ -421,7 +459,27 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
         com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_TOO_MANY_PENDING_INTENTS ->
           "Too many pending intents registered."
         com.google.android.gms.location.GeofenceStatusCodes.GEOFENCE_INSUFFICIENT_LOCATION_PERMISSION ->
-          "Insufficient location permissions. Ensure ACCESS_FINE_LOCATION and ACCESS_BACKGROUND_LOCATION are granted."
+          "Insufficient location permissions. Ensure ACCESS_FINE_LOCATION and ACCESS_BACKGROUND_LOCATION are granted (request 'Allow all the time' on Android 10+)."
+        // CommonStatusCodes (1..17). Play Services surfaces these on
+        // addGeofences when the request can't even reach the geofencing
+        // backend — most often emulator/Play Services issues, missing
+        // background permission, or a misregistered app package.
+        com.google.android.gms.common.api.CommonStatusCodes.DEVELOPER_ERROR ->
+          "Developer error from Play Services (code: 10). Common causes: " +
+            "ACCESS_BACKGROUND_LOCATION not granted at runtime; emulator " +
+            "Google Play Services package cache out of sync (try uninstalling " +
+            "the app and clearing GMS storage, or test on a physical device); " +
+            "geofence request parameters rejected by GMS."
+        com.google.android.gms.common.api.CommonStatusCodes.API_NOT_CONNECTED ->
+          "Google Play Services not connected yet (code: 17). Will retry."
+        com.google.android.gms.common.api.CommonStatusCodes.NETWORK_ERROR ->
+          "Network error from Play Services (code: 7). Will retry."
+        com.google.android.gms.common.api.CommonStatusCodes.INTERNAL_ERROR ->
+          "Internal Play Services error (code: 8). Will retry."
+        com.google.android.gms.common.api.CommonStatusCodes.RESOLUTION_REQUIRED ->
+          "Play Services requires a resolution (code: 6) — typically location services off or resolvable account issue."
+        com.google.android.gms.common.api.CommonStatusCodes.SIGN_IN_REQUIRED ->
+          "Google account sign-in required (code: 4) for geofencing."
         else -> "Unknown geofence error (code: $errorCode)"
       }
     }
