@@ -153,14 +153,17 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
       val expirationDuration = (args[7] as Int).toLong()
       val loiteringDelay = args[8] as Int
       val notificationResponsiveness = args[9] as Int
-      val geofence = Geofence.Builder()
+      val geofenceBuilder = Geofence.Builder()
         .setRequestId(id)
         .setCircularRegion(lat, long, radius)
         .setTransitionTypes(fenceTriggers)
-        .setLoiteringDelay(loiteringDelay)
         .setNotificationResponsiveness(notificationResponsiveness)
         .setExpirationDuration(expirationDuration)
-        .build()
+      // setLoiteringDelay is only honored when DWELL is among the transitions.
+      if ((fenceTriggers and Geofence.GEOFENCE_TRANSITION_DWELL) != 0) {
+        geofenceBuilder.setLoiteringDelay(loiteringDelay)
+      }
+      val geofence = geofenceBuilder.build()
       geofencingClient.addGeofences(
         getGeofencingRequest(geofence, initialTriggers),
         getGeofencePendingIndent(context, callbackHandle, id)
@@ -229,14 +232,17 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
       val expirationDuration = (args[7] as Int).toLong()
       val loiteringDelay = args[8] as Int
       val notificationResponsiveness = args[9] as Int
-      val geofence = Geofence.Builder()
+      val geofenceBuilder = Geofence.Builder()
               .setRequestId(id)
               .setCircularRegion(lat, long, radius)
               .setTransitionTypes(fenceTriggers)
-              .setLoiteringDelay(loiteringDelay)
               .setNotificationResponsiveness(notificationResponsiveness)
               .setExpirationDuration(expirationDuration)
-              .build()
+      // setLoiteringDelay is only honored when DWELL is among the transitions.
+      if ((fenceTriggers and Geofence.GEOFENCE_TRANSITION_DWELL) != 0) {
+        geofenceBuilder.setLoiteringDelay(loiteringDelay)
+      }
+      val geofence = geofenceBuilder.build()
       // Verify runtime permissions BEFORE calling addGeofences, otherwise
       // Play Services responds with the opaque DEVELOPER_ERROR (code 10).
       // ACCESS_FINE_LOCATION is mandatory on every API level; on Android 10+

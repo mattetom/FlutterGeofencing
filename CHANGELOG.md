@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2
+
+### Cleanup (Android)
+
+- Guard `setLoiteringDelay` so it is only applied when `GEOFENCE_TRANSITION_DWELL` is in the trigger bitmask. Per Play Services documentation the call is a no-op without DWELL, so the previous unconditional invocation was misleading when reading the source. Behavior is unchanged for callers that did not request DWELL.
+
 ## 1.1.1
 
 ### Bug fixes (Android)
