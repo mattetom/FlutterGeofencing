@@ -25,27 +25,42 @@ void callbackDispatcher() {
         print('GeofencingPlugin: Invalid callback arguments received');
         return;
       }
-      
+
       final Function? callback = PluginUtilities.getCallbackFromHandle(
           CallbackHandle.fromRawHandle(args[0]));
-      
+
       // Use proper null check instead of assert (assert is stripped in release mode)
       if (callback == null) {
         print('GeofencingPlugin: Failed to retrieve callback from handle ${args[0]}');
         return;
       }
-      
+
       final List<String> triggeringGeofences = args[1]?.cast<String>() ?? <String>[];
       final List<double> locationList = <double>[];
-      
+
       // 0.0 becomes 0 somewhere during the method call, resulting in wrong
       // runtime type (int instead of double). This is a simple way to get
       // around casting in another complicated manner.
       if (args[2] != null) {
         args[2].forEach((dynamic e) => locationList.add(double.parse(e.toString())));
       }
-      
-      final Location triggeringLocation = locationFromList(locationList);
+
+      // Optional 5th element: triggering-location time as int64 millis since
+      // epoch. 0 is treated as "not provided" since both platforms use 0 when
+      // the underlying timestamp is unavailable.
+      int? triggerTimeMillis;
+      if (args.length > 4 && args[4] != null) {
+        final raw = args[4];
+        if (raw is num) {
+          final asInt = raw.toInt();
+          if (asInt > 0) triggerTimeMillis = asInt;
+        }
+      }
+
+      final Location triggeringLocation = locationFromCallback(
+        coords: locationList,
+        timeMillisSinceEpoch: triggerTimeMillis,
+      );
       final GeofenceEvent event = intToGeofenceEvent(args[3]);
       
       // Call the user's callback with try-catch to prevent crashes

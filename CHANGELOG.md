@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+
+### Telemetry
+
+- `Location` exposes a new optional `time` field carrying the time of the OS-side trigger fix. On Android this is `GeofencingEvent.triggeringLocation.time` (the GPS/network fix that satisfied the transition); on iOS it is the wall-clock timestamp captured the moment `CLLocationManager` invoked `didEnter`/`didExitRegion`, since `CLRegion` does not carry one. Lets host apps measure OS-delivery latency separately from in-app processing time. Backwards compatible — old callers that don't read `time` see no change, and the field is null on platforms / paths that did not provide a timestamp.
+
 ## 1.1.2
 
 ### Cleanup (Android)

@@ -176,10 +176,15 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
             location?.latitude ?: 0,
             location?.longitude ?: 0
         )
+        // 5th element: time of the GPS/network fix that satisfied the
+        // transition, as int64 millis since epoch. 0 means "not provided"
+        // (Dart side filters that out and surfaces null on Location.time).
+        val triggerTimeMillis: Long = location?.time ?: 0L
         val geofenceUpdateList = listOf<Any>(callbackHandle,
                 triggeringGeofences ?: emptyList<String>(),
                 locationList,
-                geofenceTransition)
+                geofenceTransition,
+                triggerTimeMillis)
 
         synchronized(sServiceStarted) {
             if (!sServiceStarted.get()) {

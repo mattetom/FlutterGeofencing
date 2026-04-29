@@ -175,11 +175,20 @@ static BOOL backgroundIsolateRun = NO;
   NSAssert([region isKindOfClass:[CLCircularRegion class]], @"region must be CLCircularRegion");
   CLLocationCoordinate2D center = region.center;
   int64_t handle = [self getCallbackHandleForRegionId:region.identifier];
+  // CLRegion does not carry a timestamp, so the closest signal we can give
+  // Dart is "now in the native delegate" — captured before the channel hop
+  // so it represents OS-side delivery rather than Dart-side wall time. Sent
+  // as int64 millis since epoch in the 5th argument; Dart treats 0 as null.
+  int64_t triggerTimeMillis = (int64_t)([[NSDate date] timeIntervalSince1970] * 1000.0);
   if (handle != 0 && _callbackChannel != nil) {
       [_callbackChannel
        invokeMethod:@""
         arguments:@[
-            @(handle), @[ region.identifier ], @[ @(center.latitude), @(center.longitude) ], @(event)
+            @(handle),
+            @[ region.identifier ],
+            @[ @(center.latitude), @(center.longitude) ],
+            @(event),
+            @(triggerTimeMillis)
         ]];
   }
 }
