@@ -225,7 +225,19 @@ static BOOL backgroundIsolateRun = NO;
 - (void)startGeofencingService:(int64_t)handle {
   [self setCallbackDispatcherHandle:handle];
   FlutterCallbackInformation *info = [FlutterCallbackCache lookupCallbackInformation:handle];
-  NSAssert(info != nil, @"failed to find callback");
+  // The persisted handle can fail to resolve after an in-place app update: the
+  // AOT callback handle stored at registration time goes stale, so this lookup
+  // returns nil. Proceeding would call runWithEntrypoint:nil, which silently
+  // starts a broken headless engine (and may set backgroundIsolateRun=YES,
+  // poisoning a later valid registration in the same process). NSAssert is
+  // compiled out in release, so guard explicitly. The host app's cold-start
+  // health check force-re-registers on a build change and rewrites the handle.
+  if (info == nil) {
+    NSLog(@"GeofencingPlugin: stale callback handle %lld did not resolve "
+          @"(likely an app update); skipping headless start until re-registration",
+          (long long)handle);
+    return;
+  }
   NSString *entrypoint = info.callbackName;
   NSString *uri = info.callbackLibraryPath;
   [_headlessRunner runWithEntrypoint:entrypoint libraryURI:uri];

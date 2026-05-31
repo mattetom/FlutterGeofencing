@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1
+
+### Reliability (iOS)
+
+- Guard `startGeofencingService:` against a stale persisted callback handle. After an in-place app update the AOT callback handle stored at registration time can fail to resolve (`FlutterCallbackCache lookupCallbackInformation:` returns nil); the previous code relied on an `NSAssert` that is compiled out in release builds and then called `runWithEntrypoint:nil`, silently starting a broken headless engine (and potentially poisoning a later valid registration via `backgroundIsolateRun`). It now logs and returns early, so a re-registration on the next launch cleanly refreshes the handle. Host apps should force-re-register geofences on an app build change to rewrite the handle proactively.
+
 ## 1.2.0
 
 ### Telemetry

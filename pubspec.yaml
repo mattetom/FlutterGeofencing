@@ -2,7 +2,7 @@ name: geofencing_service
 description: >-
   Circular geofences for Flutter: enter, exit, and dwell (Android) with
   background callbacks, diagnostics, and improved iOS/Android reliability.
-version: 1.2.0
+version: 1.2.1
 topics:
   - geofencing
   - location
