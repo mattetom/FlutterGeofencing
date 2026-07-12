@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+### Feature — distinguish initial-trigger events (Android)
+
+- When a geofence is registered with `initialTrigger`, Play Services delivers a synthetic transition immediately on (re)registration (cold start, app update, reboot) reflecting the device's current location — not a real boundary crossing. Android exposes no flag for this, so consumers could not tell a state-sync from a real crossing, which polluted flap/jitter detection and produced redundant notifications on every app update.
+- The plugin now stamps each geofence's registration time (`stampRegistration`) and, on the first event within a 10s window, tags it as initial (`consumeInitialTrigger`). The verdict is surfaced to the background callback via `GeofencingManager.lastEventWasInitialTrigger`, which is set immediately before the callback is invoked — read it synchronously at the top of your callback. `false` on iOS (no synthetic initial events).
+- **Backward compatible:** the geofence callback signature is unchanged (still `(List<String>, Location, GeofenceEvent)`); the flag is a side-channel, and the extra native payload element is optional (older/iOS payloads default the flag to `false`). Existing 3-arg callbacks keep working without modification.
+
 ## 1.2.1
 
 ### Reliability (iOS)

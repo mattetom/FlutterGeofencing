@@ -166,6 +166,20 @@ class GeofencingManager {
   static const MethodChannel _background =
       MethodChannel('plugins.flutter.io/geofencing_plugin_background');
 
+  /// Whether the most recent event delivered to the geofence callback was a
+  /// synthetic *initial-trigger* event — the state-sync Play Services emits on
+  /// (re)registration on Android (cold start, app update, reboot) — rather than
+  /// a real boundary crossing.
+  ///
+  /// Set by the callback dispatcher immediately before invoking your callback;
+  /// read it **synchronously at the top of your callback** (before any
+  /// `await`). It lets a callback act on the event for state recovery while not
+  /// treating it as a real crossing (e.g. skip flap detection / a
+  /// state-change notification). Always `false` on iOS, which only delivers
+  /// real enter/exit events. Kept as a side-channel (not a new callback
+  /// parameter) so the callback signature stays backward compatible.
+  static bool lastEventWasInitialTrigger = false;
+
   /// Whether the plugin has been initialized
   static bool _initialized = false;
 

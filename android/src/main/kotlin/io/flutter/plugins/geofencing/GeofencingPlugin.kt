@@ -51,6 +51,39 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     @JvmStatic
     private val sGeofenceCacheLock = Object()
 
+    // When `initialTrigger` is set, Play Services delivers a synthetic
+    // transition immediately on (re)registration reflecting the device's
+    // current location — NOT a real boundary crossing. It has no OS-level
+    // "isInitial" flag, so we stamp the registration time per geofence id and
+    // treat the first event arriving within this window as the initial one.
+    // A real crossing within 10s of a registration is effectively impossible.
+    private const val INITIAL_TRIGGER_WINDOW_MS = 10_000L
+    @JvmStatic
+    private fun initialStampKey(id: String) = "geofence_registered_at_$id"
+
+    // Record that geofence `id` was just (re)registered. Called from the
+    // addGeofences success listener.
+    @JvmStatic
+    fun stampRegistration(context: Context, id: String) {
+      context.getSharedPreferences(SHARED_PREFERENCES_KEY, Context.MODE_PRIVATE)
+        .edit()
+        .putLong(initialStampKey(id), System.currentTimeMillis())
+        .apply()
+    }
+
+    // True if an event for `id` arrives within the initial-trigger window of
+    // its last registration (i.e. it's the synthetic state-sync, not a real
+    // crossing). Always consumes the stamp so subsequent events for `id` are
+    // treated as real crossings.
+    @JvmStatic
+    fun consumeInitialTrigger(context: Context, id: String): Boolean {
+      val p = context.getSharedPreferences(SHARED_PREFERENCES_KEY, Context.MODE_PRIVATE)
+      val stampedAt = p.getLong(initialStampKey(id), 0L)
+      if (stampedAt == 0L) return false
+      p.edit().remove(initialStampKey(id)).apply()
+      return (System.currentTimeMillis() - stampedAt) <= INITIAL_TRIGGER_WINDOW_MS
+    }
+
     // Method channel back to the host app's main isolate. Used to emit
     // diagnostic events (registration recovered/failed after retry, etc.).
     @JvmStatic
@@ -170,6 +203,7 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
       )?.run {
         addOnSuccessListener {
           Log.i(TAG, "Geofence '$id' retry succeeded on attempt ${attempt + 1}")
+          stampRegistration(context, id)
           addGeofenceToCache(context, id, args)
           emitDiagnostic(
             "registrationRecovered",
@@ -282,6 +316,7 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
               getGeofencePendingIndent(context, callbackHandle, id))?.run {
         addOnSuccessListener {
           Log.i(TAG, "Successfully added geofence: $id")
+          stampRegistration(context, id)
           if (cache) {
             addGeofenceToCache(context, id, args)
           }

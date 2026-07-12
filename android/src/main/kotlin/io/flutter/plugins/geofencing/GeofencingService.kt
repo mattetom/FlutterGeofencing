@@ -180,11 +180,28 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
         // transition, as int64 millis since epoch. 0 means "not provided"
         // (Dart side filters that out and surfaces null on Location.time).
         val triggerTimeMillis: Long = location?.time ?: 0L
+
+        // 6th element: whether this is the synthetic initial-trigger event
+        // Play Services delivers on (re)registration (cold start / app update /
+        // reboot) rather than a real boundary crossing. True if any triggering
+        // geofence fired within the initial-trigger window of its last
+        // registration. The Dart callback can act on it (state recovery) while
+        // NOT treating it as a flap or a state-change notification. iOS never
+        // sends this element (no synthetic initial events), so the Dart side
+        // defaults it to false.
+        var isInitialTrigger = false
+        for (id in triggeringGeofences ?: emptyList()) {
+            if (GeofencingPlugin.consumeInitialTrigger(applicationContext, id)) {
+                isInitialTrigger = true
+            }
+        }
+
         val geofenceUpdateList = listOf<Any>(callbackHandle,
                 triggeringGeofences ?: emptyList<String>(),
                 locationList,
                 geofenceTransition,
-                triggerTimeMillis)
+                triggerTimeMillis,
+                isInitialTrigger)
 
         synchronized(sServiceStarted) {
             if (!sServiceStarted.get()) {

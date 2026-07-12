@@ -62,7 +62,18 @@ void callbackDispatcher() {
         timeMillisSinceEpoch: triggerTimeMillis,
       );
       final GeofenceEvent event = intToGeofenceEvent(args[3]);
-      
+
+      // Optional 6th element: whether this is the synthetic initial-trigger
+      // event delivered on (re)registration (Android only) rather than a real
+      // crossing. Absent (iOS / older native) => false. Exposed to the callback
+      // via a static side-channel so the callback signature stays unchanged and
+      // backward compatible with 3-arg callbacks.
+      bool isInitialTrigger = false;
+      if (args.length > 5 && args[5] is bool) {
+        isInitialTrigger = args[5] as bool;
+      }
+      GeofencingManager.lastEventWasInitialTrigger = isInitialTrigger;
+
       // Call the user's callback with try-catch to prevent crashes
       try {
         callback(triggeringGeofences, triggeringLocation, event);
