@@ -20,7 +20,6 @@ import io.flutter.view.FlutterCallbackInformation
 import io.flutter.FlutterInjector
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.UUID
 
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -36,8 +35,20 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
     companion object {
         @JvmStatic
         private val TAG = "GeofencingService"
+        // Stable across process restarts — MUST NOT be random. JobScheduler
+        // persists queued JobWorkItems keyed by this id independently of the
+        // app process; a value that changes on every cold start (previously
+        // UUID.randomUUID(), regenerated whenever this class loads) leaves
+        // stale work items under the old id when the process is killed and
+        // restarted, and completeWork() then throws IllegalArgumentException
+        // on a work item it doesn't recognize (see the host app's
+        // docs/bug-jobintentservice-crash.md, issueId
+        // a1a6fc986c63d0c941fb302d72cdd4bd). Derived from the class's
+        // fully-qualified name (not a small literal like 1 or 1000) so it
+        // stays deterministic across runs while staying unlikely to collide
+        // with a job id chosen by another library in the same host app.
         @JvmStatic
-        private val JOB_ID = UUID.randomUUID().mostSignificantBits.toInt()
+        private val JOB_ID = "io.flutter.plugins.geofencing.GeofencingService".hashCode()
         @JvmStatic
         private var sBackgroundFlutterEngine: FlutterEngine? = null
         @JvmStatic

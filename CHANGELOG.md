@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1
+
+### Bug fixes (Android)
+
+- **Critical:** `GeofencingService`'s `JobIntentService` job id was `UUID.randomUUID().mostSignificantBits.toInt()`, regenerated every time the class loaded — i.e. on every process (re)start. `JobScheduler` persists queued `JobWorkItem`s keyed by that id independently of the app process, so a process kill/restart with work still queued under the old id left `completeWork()` unable to recognize it, throwing `IllegalArgumentException`. Seen in production on Android 16 (API 36) starting with the host app's `targetSdk` 36 bump. Fixed by deriving a stable id from the class's fully-qualified name (`"io.flutter.plugins.geofencing.GeofencingService".hashCode()`), constant across restarts.
+
 ## 1.3.0
 
 ### Feature — distinguish initial-trigger events (Android)
