@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.2
+
+### Bug fixes (Android)
+
+- **The initial-trigger flag was wrong whenever Play Services was fast.** `stampRegistration` was called from the `addGeofences` success listener, which is asynchronous, while the synthetic initial transition can be delivered as soon as the geofence lands. When delivery won that race, `consumeInitialTrigger` found no stamp and returned `false`, so a state-sync event was reported as a real boundary crossing: it fed flap/jitter detection and produced a redundant state-change notification on every app update or re-registration. Measured on a Galaxy Z Fold6 (Android 16): three synthetic events delivered in 58 ms, 123 ms and 948 ms, and only the 948 ms one was tagged correctly — the ordering was the bug, not the 10 s window width. Fixed by stamping **before** calling `addGeofences` (both the first-attempt and the retry path) and by using `commit()` instead of `apply()` so the value is durable before any event can read it. Stamping early is safe: a failed registration produces no events, so the stamp simply waits for the next one.
+
 ## 1.3.1
 
 ### Bug fixes (Android)

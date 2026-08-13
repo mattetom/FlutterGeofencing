@@ -61,14 +61,32 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     @JvmStatic
     private fun initialStampKey(id: String) = "geofence_registered_at_$id"
 
-    // Record that geofence `id` was just (re)registered. Called from the
-    // addGeofences success listener.
+    // Record that geofence `id` is about to be (re)registered.
+    //
+    // MUST be called BEFORE `addGeofences`, never from its success listener.
+    // That listener is asynchronous, while Play Services can deliver the
+    // synthetic initial trigger as soon as the geofence lands: measured at
+    // 58 ms and 123 ms on a real device, i.e. before the listener had run. In
+    // that race `consumeInitialTrigger` finds no stamp, returns false, and the
+    // synthetic event is misread as a real boundary crossing — it feeds the
+    // flap detector and fires a state-change notification. The same device
+    // labelled the flag correctly only when delivery happened to take 948 ms,
+    // which is the direct evidence that the ordering, not the window width,
+    // was the bug.
+    //
+    // Stamping early is safe: if the registration fails no event can arrive,
+    // so the stamp just sits there until the next event for `id` consumes it.
     @JvmStatic
     fun stampRegistration(context: Context, id: String) {
       context.getSharedPreferences(SHARED_PREFERENCES_KEY, Context.MODE_PRIVATE)
         .edit()
         .putLong(initialStampKey(id), System.currentTimeMillis())
-        .apply()
+        // commit(), not apply(): the reader can run in a different thread a few
+        // tens of milliseconds later, and apply() only guarantees the in-memory
+        // value for the same SharedPreferences instance. The write is tiny and
+        // happens once per registration, so the synchronous cost is irrelevant
+        // next to losing the race we are fixing.
+        .commit()
     }
 
     // True if an event for `id` arrives within the initial-trigger window of
@@ -197,13 +215,15 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
         geofenceBuilder.setLoiteringDelay(loiteringDelay)
       }
       val geofence = geofenceBuilder.build()
+      // Stamp BEFORE registering: the initial trigger can beat the success
+      // listener. See the note on stampRegistration.
+      stampRegistration(context, id)
       geofencingClient.addGeofences(
         getGeofencingRequest(geofence, initialTriggers),
         getGeofencePendingIndent(context, callbackHandle, id)
       )?.run {
         addOnSuccessListener {
           Log.i(TAG, "Geofence '$id' retry succeeded on attempt ${attempt + 1}")
-          stampRegistration(context, id)
           addGeofenceToCache(context, id, args)
           emitDiagnostic(
             "registrationRecovered",
@@ -312,11 +332,13 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
       // cancel it — this new call supersedes the pending work.
       cancelPendingRetry(id)
 
+      // Stamp BEFORE registering: the initial trigger can beat the success
+      // listener. See the note on stampRegistration.
+      stampRegistration(context, id)
       geofencingClient.addGeofences(getGeofencingRequest(geofence, initialTriggers),
               getGeofencePendingIndent(context, callbackHandle, id))?.run {
         addOnSuccessListener {
           Log.i(TAG, "Successfully added geofence: $id")
-          stampRegistration(context, id)
           if (cache) {
             addGeofenceToCache(context, id, args)
           }
