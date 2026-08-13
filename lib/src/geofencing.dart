@@ -180,6 +180,18 @@ class GeofencingManager {
   /// parameter) so the callback signature stays backward compatible.
   static bool lastEventWasInitialTrigger = false;
 
+  /// Timbri della catena di consegna dell'ultimo evento geofence, in
+  /// millisecondi epoch: `[ingresso receiver, prima di accodare, avvio del
+  /// lavoro]`. Null quando la piattaforma non li fornisce (iOS, o percorsi che
+  /// non passano dal broadcast receiver).
+  ///
+  /// Servono a dividere il ritardo osservato nelle sue tratte: quanto ci mette
+  /// Play Services a consegnare, quanto costa l'inizializzazione di Flutter
+  /// dentro il receiver, e quanto si resta nella coda del JobScheduler. Come
+  /// [lastEventWasInitialTrigger], vanno letti in modo sincrono in cima al
+  /// callback: il valore viene sovrascritto dall'evento successivo.
+  static List<int>? lastEventDeliveryTimings;
+
   /// Whether the plugin has been initialized
   static bool _initialized = false;
 

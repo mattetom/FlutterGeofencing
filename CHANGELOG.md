@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.3
+
+### Bug fixes (Android)
+
+- **The initial-trigger window was far too narrow.** It assumed Play Services delivers the synthetic state-sync right after `addGeofences`. Measured on a Galaxy Z Fold6 (Android 16), device sitting still at home: **3m16s and 3m36s** between registration and delivery, with the triggering fix 5 m from the geofence centre — i.e. unambiguously synthetic, yet reported as a real crossing because the 10 s window had long expired. Widened to 30 minutes. The stamp is still consumed by the first event for that id, so only the first event after a registration can ever be tagged initial.
+
+### Observability (Android)
+
+- The geofence callback payload now carries a 7th element with three delivery timestamps — broadcast receiver entry, just before `enqueueWork`, and start of `onHandleWork` — surfaced to Dart as `GeofencingManager.lastEventDeliveryTimings`. This splits the previously opaque fix-to-callback latency into: Play Services delivery, the synchronous `FlutterLoader` init inside the receiver, the `JobScheduler` queue (`JobIntentService` is JobScheduler-backed on API 26+, hence subject to Doze and App Standby), and background isolate startup. Without it, multi-minute enter latencies could not be attributed. Baseline on a warm fast path: 23 ms / 1 ms / 58 ms / 3 ms.
+
 ## 1.3.2
 
 ### Bug fixes (Android)

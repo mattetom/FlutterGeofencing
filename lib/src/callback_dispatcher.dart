@@ -74,6 +74,14 @@ void callbackDispatcher() {
       }
       GeofencingManager.lastEventWasInitialTrigger = isInitialTrigger;
 
+      List<int>? deliveryTimings;
+      if (args.length > 6 && args[6] is List) {
+        deliveryTimings = <int>[
+          for (final dynamic v in args[6] as List) (v as num).toInt(),
+        ];
+      }
+      GeofencingManager.lastEventDeliveryTimings = deliveryTimings;
+
       // Call the user's callback with try-catch to prevent crashes
       try {
         callback(triggeringGeofences, triggeringLocation, event);

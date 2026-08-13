@@ -165,6 +165,12 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
     }
 
     override fun onHandleWork(intent: Intent) {
+        // Timbro 3: il lavoro accodato e' finalmente partito. La differenza col
+        // timbro 2 e' il tempo passato NELLA CODA DEL JOBSCHEDULER, perche'
+        // JobIntentService su API 26+ e' implementato sopra JobScheduler ed e'
+        // quindi soggetto a Doze e agli App Standby Bucket. E' il sospetto
+        // principale per i ritardi di minuti osservati sugli enter.
+        val handleWorkMs = System.currentTimeMillis()
         Log.i(TAG, "onHandleWork")
         val callbackHandle = intent.getLongExtra(GeofencingPlugin.CALLBACK_HANDLE_KEY, 0)
         val geofencingEvent = GeofencingEvent.fromIntent(intent)
@@ -207,12 +213,25 @@ class GeofencingService : MethodCallHandler, JobIntentService() {
             }
         }
 
+        // 7th element: i tre timbri della catena di consegna, in millisecondi
+        // epoch. Permettono di dividere `os_to_callback_ms` nelle sue tratte:
+        //   l.time -> [0]  = Play Services (fuori dal nostro controllo)
+        //   [0] -> [1]     = init del Flutter loader, sincrona nel receiver
+        //   [1] -> [2]     = coda del JobScheduler
+        //   [2] -> callback = avvio dell'isolate di background
+        // Zero significa "non fornito" (percorsi che non passano dal receiver).
+        val deliveryTimings = listOf(
+                intent.getLongExtra(GeofencingPlugin.RECEIVER_ENTRY_MS_KEY, 0L),
+                intent.getLongExtra(GeofencingPlugin.PRE_ENQUEUE_MS_KEY, 0L),
+                handleWorkMs)
+
         val geofenceUpdateList = listOf<Any>(callbackHandle,
                 triggeringGeofences ?: emptyList<String>(),
                 locationList,
                 geofenceTransition,
                 triggerTimeMillis,
-                isInitialTrigger)
+                isInitialTrigger,
+                deliveryTimings)
 
         synchronized(sServiceStarted) {
             if (!sServiceStarted.get()) {

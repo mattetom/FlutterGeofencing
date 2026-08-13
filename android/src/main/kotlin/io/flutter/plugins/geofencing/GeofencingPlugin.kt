@@ -52,12 +52,30 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     private val sGeofenceCacheLock = Object()
 
     // When `initialTrigger` is set, Play Services delivers a synthetic
-    // transition immediately on (re)registration reflecting the device's
-    // current location — NOT a real boundary crossing. It has no OS-level
-    // "isInitial" flag, so we stamp the registration time per geofence id and
-    // treat the first event arriving within this window as the initial one.
-    // A real crossing within 10s of a registration is effectively impossible.
-    private const val INITIAL_TRIGGER_WINDOW_MS = 10_000L
+    // transition on (re)registration reflecting the device's current location
+    // — NOT a real boundary crossing. It carries no OS-level "isInitial" flag,
+    // so we stamp the registration time per geofence id and treat the first
+    // event for that id as the initial one, provided it lands inside the
+    // window below.
+    //
+    // Quanto puo' passare fra la registrazione e il trigger sintetico perche'
+    // lo si consideri ancora tale. Era 10 secondi, sulla convinzione che Play
+    // Services consegnasse l'evento di sincronizzazione stato subito dopo
+    // `addGeofences`. Misurato sul campo (Galaxy Z Fold6, Android 16, device
+    // fermo in casa): **3m16s e 3m36s**. Con 10 secondi il flag risultava
+    // quindi `false` su eventi che erano sinteticissimi — nessun
+    // attraversamento possibile, il fix innescante era a 5 metri dal centro.
+    //
+    // 30 minuti e' generoso ma limitato di proposito: il timbro viene comunque
+    // consumato dal primo evento per quell'id, quindi il rischio residuo e' un
+    // solo evento etichettato male nel caso in cui il sintetico non arrivi mai
+    // e il primo evento sia un attraversamento vero.
+    private const val INITIAL_TRIGGER_WINDOW_MS = 30L * 60L * 1000L
+
+    // Chiavi dei timbri di consegna, propagati come extra sull'Intent dal
+    // broadcast receiver fino a onHandleWork.
+    const val RECEIVER_ENTRY_MS_KEY = "geoblink_receiver_entry_ms"
+    const val PRE_ENQUEUE_MS_KEY = "geoblink_pre_enqueue_ms"
     @JvmStatic
     private fun initialStampKey(id: String) = "geofence_registered_at_$id"
 
@@ -89,10 +107,10 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
         .commit()
     }
 
-    // True if an event for `id` arrives within the initial-trigger window of
-    // its last registration (i.e. it's the synthetic state-sync, not a real
-    // crossing). Always consumes the stamp so subsequent events for `id` are
-    // treated as real crossings.
+    // True if an event for `id` is the synthetic state-sync rather than a real
+    // crossing. Consumes the stamp unconditionally, so the SECOND event for
+    // `id` after a registration is always treated as a real crossing even if
+    // it arrives inside the window: only the first can be the state-sync.
     @JvmStatic
     fun consumeInitialTrigger(context: Context, id: String): Boolean {
       val p = context.getSharedPreferences(SHARED_PREFERENCES_KEY, Context.MODE_PRIVATE)
