@@ -8,6 +8,10 @@
 - **A stale callback handle no longer bricks the background engine.** The handle was validated *after* creating the `FlutterEngine`; on failure the engine was left instantiated but without Dart, and every later event saw `engine != null`, skipped initialization and queued forever. Validation now happens first, so a failed lookup leaves no engine behind and the next registration (which rewrites the handle) starts cleanly.
 - The background channel's method-call handler no longer double-replies on unknown methods (`notImplemented()` was followed by an unconditional `success(null)`).
 
+### Observability (Android)
+
+- The callback payload carries an 8th element with the delivery path, surfaced to Dart as `GeofencingManager.lastEventDeliveryPath`: `"direct"` (receiver dispatch under `goAsync`, the primary path), `"job:rejected"` / `"job:exception"` (explicit fallback to `JobIntentService`, with the reason), or `"job"` (work enqueued by an older plugin version). Without this the fallback branch would be invisible outside logcat; in telemetry, anything other than `"direct"` on 1.3.4+ Android should be treated as an anomaly worth investigating — and sustained 0% fallback is the evidence that will eventually let the fallback be removed.
+
 ## 1.3.3
 
 ### Bug fixes (Android)

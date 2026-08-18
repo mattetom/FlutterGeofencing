@@ -73,16 +73,24 @@ class GeofencingBroadcastReceiver : BroadcastReceiver() {
         // copia ritardata trova il flag gia' consumato e non fa nulla.
         Handler(Looper.getMainLooper()).postDelayed(finishOnce, FINISH_WATCHDOG_MS)
 
+        var fallbackReason: String? = null
         val accepted = try {
-            GeofencingService.dispatchDirect(context, intent, finishOnce)
+            val ok = GeofencingService.dispatchDirect(context, intent, finishOnce)
+            if (!ok) fallbackReason = "rejected"
+            ok
         } catch (t: Throwable) {
             Log.e(TAG, "Direct dispatch failed, falling back to JobIntentService", t)
+            fallbackReason = "exception"
             false
         }
         if (!accepted) {
             // Fallback esplicito sul vecchio percorso. Sicuro contro le doppie
             // consegne: dispatchDirect ritorna false SOLO se l'evento non e'
-            // stato preso in carico (ne' consegnato ne' accodato).
+            // stato preso in carico (ne' consegnato ne' accodato). La ragione
+            // viaggia nell'Intent e finisce nel path di consegna esposto a
+            // Dart ("job:rejected" / "job:exception"), cosi' un fallback che
+            // scatta in produzione e' misurabile, non solo un rigo di logcat.
+            intent.putExtra(GeofencingPlugin.FALLBACK_REASON_KEY, fallbackReason ?: "unknown")
             try {
                 GeofencingService.enqueueWork(context, intent)
             } catch (t: Throwable) {

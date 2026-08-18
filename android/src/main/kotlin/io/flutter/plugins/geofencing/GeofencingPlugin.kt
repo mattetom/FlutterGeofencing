@@ -76,6 +76,12 @@ class GeofencingPlugin : ActivityAware, FlutterPlugin, MethodCallHandler {
     // broadcast receiver fino a onHandleWork.
     const val RECEIVER_ENTRY_MS_KEY = "geoblink_receiver_entry_ms"
     const val PRE_ENQUEUE_MS_KEY = "geoblink_pre_enqueue_ms"
+    // Perche' il receiver ha ripiegato su enqueueWork ("rejected" = dispatch
+    // diretto non ha preso in carico l'evento, "exception" = il percorso
+    // diretto ha lanciato). Assente sui lavori accodati da versioni vecchie
+    // del plugin. Finisce nel path di consegna esposto a Dart: senza questo
+    // il ramo di fallback sarebbe invisibile fuori da logcat.
+    const val FALLBACK_REASON_KEY = "geoblink_fallback_reason"
     @JvmStatic
     private fun initialStampKey(id: String) = "geofence_registered_at_$id"
 

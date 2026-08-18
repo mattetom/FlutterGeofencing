@@ -166,7 +166,7 @@ class GeofencingService : JobIntentService() {
             if (!ensureEngineStarted(appContext)) {
                 return false
             }
-            val payload = buildEventPayload(appContext, intent, System.currentTimeMillis())
+            val payload = buildEventPayload(appContext, intent, System.currentTimeMillis(), "direct")
                     ?: return false
             deliverOrQueue(payload, onDelivered)
             return true
@@ -252,7 +252,7 @@ class GeofencingService : JobIntentService() {
         // l'avvio di onHandleWork — cosi' la tratta [1]->[2] dei timbri misura
         // rispettivamente l'handoff sincrono o la coda del JobScheduler.
         @JvmStatic
-        private fun buildEventPayload(context: Context, intent: Intent, handledAtMs: Long): List<Any>? {
+        private fun buildEventPayload(context: Context, intent: Intent, handledAtMs: Long, path: String): List<Any>? {
             val callbackHandle = intent.getLongExtra(GeofencingPlugin.CALLBACK_HANDLE_KEY, 0)
             val geofencingEvent = GeofencingEvent.fromIntent(intent)
             if (geofencingEvent == null || geofencingEvent.hasError()) {
@@ -307,13 +307,22 @@ class GeofencingService : JobIntentService() {
                     intent.getLongExtra(GeofencingPlugin.PRE_ENQUEUE_MS_KEY, 0L),
                     handledAtMs)
 
+            // 8th element: quale percorso ha consegnato l'evento. "direct" =
+            // dispatch nel receiver sotto goAsync (il percorso primario);
+            // "job:rejected" / "job:exception" = fallback su JobIntentService
+            // con la ragione del ripiego; "job" = lavoro arrivato in coda
+            // senza passare dal dispatch diretto (accodato da una versione
+            // precedente del plugin). Serve a rendere il fallback OSSERVABILE:
+            // senza questo campo un ramo di ripiego che scatta in produzione
+            // sarebbe indistinguibile dal percorso sano.
             return listOf<Any>(callbackHandle,
                     triggeringGeofences ?: emptyList<String>(),
                     locationList,
                     geofenceTransition,
                     triggerTimeMillis,
                     isInitialTrigger,
-                    deliveryTimings)
+                    deliveryTimings,
+                    path)
         }
 
         @JvmStatic
@@ -350,7 +359,9 @@ class GeofencingService : JobIntentService() {
     override fun onHandleWork(intent: Intent) {
         val handledAtMs = System.currentTimeMillis()
         Log.i(TAG, "onHandleWork")
-        val payload = buildEventPayload(applicationContext, intent, handledAtMs) ?: return
+        val fallbackReason = intent.getStringExtra(GeofencingPlugin.FALLBACK_REASON_KEY)
+        val path = if (fallbackReason == null) "job" else "job:$fallbackReason"
+        val payload = buildEventPayload(applicationContext, intent, handledAtMs, path) ?: return
         deliverOrQueue(payload, null)
     }
 }

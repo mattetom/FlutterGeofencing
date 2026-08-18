@@ -195,6 +195,19 @@ class GeofencingManager {
   /// callback: il valore viene sovrascritto dall'evento successivo.
   static List<int>? lastEventDeliveryTimings;
 
+  /// Quale percorso nativo ha consegnato l'ultimo evento: `"direct"` =
+  /// dispatch nel receiver sotto goAsync (il percorso primario dal 1.3.4),
+  /// `"job:rejected"` / `"job:exception"` = fallback su JobIntentService con
+  /// la ragione del ripiego, `"job"` = lavoro accodato senza passare dal
+  /// dispatch diretto (versioni precedenti del plugin). Null su iOS e sui
+  /// payload nativi piu' vecchi.
+  ///
+  /// E' il segnale che rende osservabile il ramo di fallback: in telemetria
+  /// qualsiasi valore diverso da `"direct"` su Android 1.3.4+ va trattato come
+  /// anomalia da investigare. Come gli altri static, va letto in modo sincrono
+  /// in cima al callback: il valore viene sovrascritto dall'evento successivo.
+  static String? lastEventDeliveryPath;
+
   /// Whether the plugin has been initialized
   static bool _initialized = false;
 
