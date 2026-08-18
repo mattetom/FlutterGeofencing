@@ -3,11 +3,12 @@
 // found in the LICENSE file.
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:geofencing_service/geofencing_service.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -167,34 +168,38 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
+  /// Banco di prova: invece di notificare, appende una riga al log con la
+  /// scomposizione del ritardo di consegna. E' la stessa misura usata sul
+  /// device reale, ridotta al minimo indispensabile e senza dipendenze.
+  ///
+  ///   gms    = dal fix di posizione all'ingresso del broadcast receiver
+  ///   loader = init sincrona del Flutter loader dentro il receiver
+  ///   queue  = attesa nella coda del JobScheduler (il sospetto principale)
+  ///   engine = avvio dell'isolate di background fino a qui
   static Future<void> sendGeofenceNotification(GeofenceEvent e) async {
-    const AndroidNotificationDetails androidNotificationDetails =
-        AndroidNotificationDetails('notifications', 'Notifications',
-            channelDescription: 'Notifications about arm/disarm alarm system.',
-            importance: Importance.max,
-            priority: Priority.high,
-            ticker: 'Notifications about arm/disarm alarm system.');
-    const NotificationDetails notificationDetails =
-        NotificationDetails(android: androidNotificationDetails);
-    FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-        FlutterLocalNotificationsPlugin();
-    // initialise the plugin. app_icon needs to be a added as a drawable resource to the Android head project
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@drawable/ic_stat_notification');
-    final DarwinInitializationSettings initializationSettingsDarwin =
-        DarwinInitializationSettings();
-    final InitializationSettings initializationSettings =
-        InitializationSettings(
-            android: initializationSettingsAndroid,
-            iOS: initializationSettingsDarwin);
-    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
-    await flutterLocalNotificationsPlugin.show(
-        2,
-        'Geofencing Plugin',
-        (e == GeofenceEvent.enter
-            ? 'You entered geofencing area. '
-            : 'You exited geofencing area. '),
-        notificationDetails,
-        payload: 'test geofencing plugin');
+    final timings = GeofencingManager.lastEventDeliveryTimings;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final parts = <String>[
+      DateTime.now().toIso8601String(),
+      e == GeofenceEvent.enter ? 'enter' : 'exit',
+      'initial=${GeofencingManager.lastEventWasInitialTrigger}',
+    ];
+    if (timings != null && timings.length >= 3 && timings[0] != 0) {
+      parts.addAll(<String>[
+        'loader_ms=${timings[1] - timings[0]}',
+        'queue_ms=${timings[2] - timings[1]}',
+        'engine_ms=${nowMs - timings[2]}',
+      ]);
+    }
+    try {
+      final dir = await getExternalStorageDirectory() ??
+          await getApplicationDocumentsDirectory();
+      await File('${dir.path}/geofence_bench.log')
+          .writeAsString('${parts.join("|")}\n',
+              mode: FileMode.append, flush: true);
+    } catch (err) {
+      print('bench log failed: $err');
+    }
+    print('BENCH ${parts.join("|")}');
   }
 }

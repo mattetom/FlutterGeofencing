@@ -40,5 +40,39 @@ class GeofencingBroadcastReceiver : BroadcastReceiver() {
         intent.putExtra(GeofencingPlugin.PRE_ENQUEUE_MS_KEY, System.currentTimeMillis())
 
         GeofencingService.enqueueWork(context, intent)
+
+        // Promozione a foreground DOPO aver accodato, e l'ordine e' il punto.
+        //
+        // Perche' serve: `enqueueWork` passa da JobIntentService, che su API 26+
+        // e' costruito sopra JobScheduler, quindi il lavoro viene differito
+        // quando l'app e' inattiva. Misurato su rientri reali: Play Services
+        // consegna il broadcast in 81-113 ms e il lavoro resta in coda 23 e 95
+        // minuti. Con un foreground service attivo il processo ha importanza
+        // foreground e i suoi job non subiscono quel differimento.
+        //
+        // Perche' DOPO e non prima: `startForegroundService` impone che il
+        // servizio chiami `startForeground()` entro ~5 s, e `onCreate` di un
+        // Service gira sul MAIN THREAD, lo stesso su cui sta girando questo
+        // `onReceive`. Chiamandola in cima, `onCreate` restava accodata dietro
+        // `ensureInitializationComplete` (sincrona, su processo freddo anche
+        // secondi) e la finestra scadeva: l'app veniva uccisa con
+        // ForegroundServiceDidNotStartInTimeException a OGNI evento geofence,
+        // cioe' arm e disarm smettevano del tutto di funzionare. Osservato su
+        // un Galaxy Z Fold6: evento alle 22:43:28, crash alle 22:43:33.
+        //
+        // Spegnimento a carico del consumatore a fine elaborazione
+        // (`demoteToBackground`), come gia' avveniva. Se la promozione non e'
+        // permessa si prosegue: degrada al comportamento precedente.
+        try {
+            val holder = Intent(context, IsolateHolderService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.startForegroundService(holder)
+            } else {
+                context.startService(holder)
+            }
+        } catch (t: Throwable) {
+            // Comprende ForegroundServiceStartNotAllowedException (API 31+).
+            Log.w(TAG, "Foreground promotion failed; work stays on the plain queue", t)
+        }
     }
 }
