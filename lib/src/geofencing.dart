@@ -187,7 +187,10 @@ class GeofencingManager {
   ///
   /// Servono a dividere il ritardo osservato nelle sue tratte: quanto ci mette
   /// Play Services a consegnare, quanto costa l'inizializzazione di Flutter
-  /// dentro il receiver, e quanto si resta nella coda del JobScheduler. Come
+  /// dentro il receiver, e la presa in carico. Dal 1.3.4 il percorso primario
+  /// e' il dispatch diretto nel receiver, quindi la terza tratta e' un handoff
+  /// sincrono (~0 ms); torna a misurare la coda del JobScheduler solo nel
+  /// percorso di fallback via JobIntentService. Come
   /// [lastEventWasInitialTrigger], vanno letti in modo sincrono in cima al
   /// callback: il valore viene sovrascritto dall'evento successivo.
   static List<int>? lastEventDeliveryTimings;
