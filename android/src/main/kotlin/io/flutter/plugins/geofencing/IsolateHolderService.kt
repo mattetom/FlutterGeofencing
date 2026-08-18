@@ -76,13 +76,6 @@ class IsolateHolderService : Service() {
 
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(notificationTitle)
-            .setContentText(notificationText)
-            .setSmallIcon(imageId)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .build()
 
         // Acquire WakeLock and store reference for proper release
         try {
@@ -95,20 +88,63 @@ class IsolateHolderService : Service() {
             Log.e(TAG, "Failed to acquire WakeLock: ${e.message}")
         }
         
-        startForeground(1, notification)
+        enterForeground()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) : Int {
         Log.i(TAG, "onStartCommand: action=${intent?.action}")
-        
+
+        // OGNI `startForegroundService()` va onorato da una `startForeground()`,
+        // anche quando il servizio e' gia' in esecuzione: in quel caso `onCreate`
+        // NON viene richiamato, quindi la chiamata deve stare qui.
+        //
+        // Prima stava solo in `onCreate` e bastava finche' l'avvio era uno solo
+        // (il `promoteToForeground` del callback Dart). Con due avvii — es. il
+        // broadcast receiver che promuove e poi il callback che ripromuove — il
+        // secondo restava scoperto, e al successivo `demoteToBackground` il
+        // sistema uccideva il processo con
+        // ForegroundServiceDidNotStartInTimeException. Osservato su Galaxy Z
+        // Fold6 (Android 16): l'app moriva a OGNI evento geofence, quindi arm e
+        // disarm smettevano del tutto di funzionare.
+        //
+        // Vale anche per lo SHUTDOWN: se quell'intent e' la consegna di un
+        // avvio ancora scoperto, bisogna prima onorarlo e poi spegnere.
+        enterForeground()
+
         if (intent?.action == ACTION_SHUTDOWN) {
             releaseWakeLock()
-            stopForeground(true)
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
-        
+
         return START_STICKY
+    }
+
+    /// Costruisce la notifica e porta il servizio in foreground. Idempotente:
+    /// richiamarla su un servizio gia' in foreground aggiorna la notifica senza
+    /// effetti collaterali, ed e' cio' che permette di onorare avvii multipli.
+    private fun enterForeground() {
+        try {
+            val notification = NotificationCompat.Builder(this, "geofencing_plugin_channel")
+                .setContentTitle(notificationTitle)
+                .setContentText(notificationText)
+                .setSmallIcon(smallIconResId())
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true)
+                .build()
+            startForeground(1, notification)
+        } catch (e: Throwable) {
+            // Se anche questa fallisce non c'e' modo di onorare il contratto:
+            // meglio un log che un crash silenzioso da diagnosticare a valle.
+            Log.e(TAG, "startForeground failed", e)
+        }
+    }
+
+    private fun smallIconResId(): Int {
+        var id = resources.getIdentifier("ic_stat_notification", "drawable", packageName)
+        if (id == 0) id = resources.getIdentifier("ic_launcher", "mipmap", packageName)
+        return id
     }
     
     override fun onDestroy() {
