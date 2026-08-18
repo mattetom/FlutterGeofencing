@@ -27,43 +27,6 @@ class GeofencingBroadcastReceiver : BroadcastReceiver() {
         // di Play Services".
         intent.putExtra(GeofencingPlugin.RECEIVER_ENTRY_MS_KEY, System.currentTimeMillis())
 
-        // Promozione a foreground PRIMA di accodare il lavoro. E' il punto
-        // cruciale di tutta la catena.
-        //
-        // `enqueueWork` passa da JobIntentService, che su API 26+ e' costruito
-        // sopra JobScheduler: se l'app e' inattiva, il lavoro accodato viene
-        // differito da Doze e dagli App Standby Bucket. Misurato su un rientro
-        // reale (Galaxy Z Fold6, Android 16, telefono parcheggiato e fermo):
-        // Play Services ha consegnato il broadcast in 113 ms, e il lavoro e'
-        // rimasto in coda **22 minuti e 57 secondi** prima di partire. Sullo
-        // stesso device e la stessa geofence, un'uscita in auto con device in
-        // movimento aveva 16 ms di coda: e' lo stato del device a decidere, ed
-        // e' anche la spiegazione dell'asimmetria fra uscita e rientro.
-        //
-        // Con un foreground service attivo il processo ha importanza foreground
-        // e i suoi job non subiscono quel differimento. Il plugin gia' esponeva
-        // `promoteToForeground`, ma veniva invocata dal callback Dart, cioe'
-        // DOPO che il job era finalmente partito: troppo tardi per servire a
-        // qualcosa. Qui la promozione avviene mentre siamo ancora nella
-        // temporary power allowlist concessa al PendingIntent del geofence, che
-        // e' cio' che rende lecito avviare un FGS da background su Android 12+.
-        //
-        // Lo spegnimento resta a carico del consumatore a fine elaborazione
-        // (`demoteToBackground`), come gia' avveniva. Se la promozione non e'
-        // permessa si prosegue lo stesso: il comportamento degrada a quello
-        // precedente, non peggiora.
-        try {
-            val holder = Intent(context, IsolateHolderService::class.java)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                context.startForegroundService(holder)
-            } else {
-                context.startService(holder)
-            }
-        } catch (t: Throwable) {
-            // Comprende ForegroundServiceStartNotAllowedException (API 31+).
-            Log.w(TAG, "Foreground promotion failed; falling back to plain enqueue", t)
-        }
-
         Log.v(TAG, context.getString(R.string.geofence_triggered))
 
         val flutterLoader = FlutterInjector.instance().flutterLoader()
