@@ -1,17 +1,5 @@
 # Changelog
 
-## 1.3.4
-
-### Bug fixes (Android)
-
-- **Geofence events are now dispatched directly from the broadcast receiver, under `goAsync()`.** The delivery path used to be `onReceive` → `JobIntentService.enqueueWork` → `onHandleWork`: on API 26+ that middle leg is a regular JobScheduler job, deferred by Doze/App Standby exactly when the device has been still with the screen off — i.e. on every arrival home. Measured on a Galaxy Z Fold6 (Android 16): Play Services delivers the broadcast in **17–113 ms**, then the event sat in the JobScheduler queue for **22 and up to 95 minutes**. The receiver now starts the background engine and hands the event to Dart synchronously, keeping the broadcast (and its system wakelock) alive via `goAsync()` until the event is actually delivered — with an 8.5 s watchdog so the close stays deterministic even if the isolate is slow to start (the event is not lost: it sits in the dispatcher queue and is flushed on `GeofencingService.initialized`). If direct dispatch does not accept the event, the receiver falls back explicitly to the old `JobIntentService` path; acceptance is all-or-nothing, so no event can be delivered twice. The shared machinery (engine, background channel, event queue) moved from service-instance fields to statics so both paths use the same state, the event queue gained a defensive cap (32), and the foreground promotion introduced earlier is kept — after the hand-off — because the Dart callback's long work (the Blink HTTP call) runs after `goAsync` ends and needs network during Doze.
-- **A stale callback handle no longer bricks the background engine.** The handle was validated *after* creating the `FlutterEngine`; on failure the engine was left instantiated but without Dart, and every later event saw `engine != null`, skipped initialization and queued forever. Validation now happens first, so a failed lookup leaves no engine behind and the next registration (which rewrites the handle) starts cleanly.
-- The background channel's method-call handler no longer double-replies on unknown methods (`notImplemented()` was followed by an unconditional `success(null)`).
-
-### Observability (Android)
-
-- The callback payload carries an 8th element with the delivery path, surfaced to Dart as `GeofencingManager.lastEventDeliveryPath`: `"direct"` (receiver dispatch under `goAsync`, the primary path), `"job:rejected"` / `"job:exception"` (explicit fallback to `JobIntentService`, with the reason), or `"job"` (work enqueued by an older plugin version). Without this the fallback branch would be invisible outside logcat; in telemetry, anything other than `"direct"` on 1.3.4+ Android should be treated as an anomaly worth investigating — and sustained 0% fallback is the evidence that will eventually let the fallback be removed.
-
 ## 1.3.3
 
 ### Bug fixes (Android)

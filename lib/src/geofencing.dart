@@ -187,26 +187,10 @@ class GeofencingManager {
   ///
   /// Servono a dividere il ritardo osservato nelle sue tratte: quanto ci mette
   /// Play Services a consegnare, quanto costa l'inizializzazione di Flutter
-  /// dentro il receiver, e la presa in carico. Dal 1.3.4 il percorso primario
-  /// e' il dispatch diretto nel receiver, quindi la terza tratta e' un handoff
-  /// sincrono (~0 ms); torna a misurare la coda del JobScheduler solo nel
-  /// percorso di fallback via JobIntentService. Come
+  /// dentro il receiver, e quanto si resta nella coda del JobScheduler. Come
   /// [lastEventWasInitialTrigger], vanno letti in modo sincrono in cima al
   /// callback: il valore viene sovrascritto dall'evento successivo.
   static List<int>? lastEventDeliveryTimings;
-
-  /// Quale percorso nativo ha consegnato l'ultimo evento: `"direct"` =
-  /// dispatch nel receiver sotto goAsync (il percorso primario dal 1.3.4),
-  /// `"job:rejected"` / `"job:exception"` = fallback su JobIntentService con
-  /// la ragione del ripiego, `"job"` = lavoro accodato senza passare dal
-  /// dispatch diretto (versioni precedenti del plugin). Null su iOS e sui
-  /// payload nativi piu' vecchi.
-  ///
-  /// E' il segnale che rende osservabile il ramo di fallback: in telemetria
-  /// qualsiasi valore diverso da `"direct"` su Android 1.3.4+ va trattato come
-  /// anomalia da investigare. Come gli altri static, va letto in modo sincrono
-  /// in cima al callback: il valore viene sovrascritto dall'evento successivo.
-  static String? lastEventDeliveryPath;
 
   /// Whether the plugin has been initialized
   static bool _initialized = false;

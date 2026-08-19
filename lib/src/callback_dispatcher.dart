@@ -82,15 +82,6 @@ void callbackDispatcher() {
       }
       GeofencingManager.lastEventDeliveryTimings = deliveryTimings;
 
-      // Optional 8th element: which native path delivered the event
-      // ("direct", "job", "job:rejected", "job:exception"). Absent on iOS and
-      // on older native payloads.
-      String? deliveryPath;
-      if (args.length > 7 && args[7] is String) {
-        deliveryPath = args[7] as String;
-      }
-      GeofencingManager.lastEventDeliveryPath = deliveryPath;
-
       // Call the user's callback with try-catch to prevent crashes
       try {
         callback(triggeringGeofences, triggeringLocation, event);
