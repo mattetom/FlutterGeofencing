@@ -48,7 +48,7 @@ internal object GeofencePersistence {
      *  producendo finti enter/exit di ri-sincronizzazione al fix successivo. */
     fun wasSelfHealDoneForBoot(context: Context, bootEpochMs: Long): Boolean {
         val stored = prefs(context).getLong(KEY_SELFHEAL_BOOT, Long.MIN_VALUE)
-        return kotlin.math.abs(stored - bootEpochMs) < 5_000L
+        return kotlin.math.abs(stored - bootEpochMs) < 600_000L
     }
 
     fun markSelfHealDoneForBoot(context: Context, bootEpochMs: Long) {

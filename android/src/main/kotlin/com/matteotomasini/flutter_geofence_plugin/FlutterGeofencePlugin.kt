@@ -92,6 +92,21 @@ class FlutterGeofencePlugin :
                 }
             }
 
+            "isBackgroundRestricted" -> {
+                val am = context.getSystemService(Context.ACTIVITY_SERVICE)
+                    as android.app.ActivityManager
+                result.success(
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+                        am.isBackgroundRestricted,
+                )
+            }
+
+            "isIgnoringBatteryOptimizations" -> {
+                val pm = context.getSystemService(Context.POWER_SERVICE)
+                    as android.os.PowerManager
+                result.success(pm.isIgnoringBatteryOptimizations(context.packageName))
+            }
+
             "getRegisteredGeofenceIds" -> {
                 result.success(GeofencePersistence.getRegions(context).map { it.id })
             }

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.0
+
+- `isBackgroundRestricted()`: rileva "Batteria → Con limitazioni" (lo stato
+  in cui Android scarta i broadcast — geofence incluse — in silenzio; caso
+  reale del 22/08/2026, innescato da One UI dopo un crash-loop). Il plugin
+  non puo' accorgersene da solo: le app devono controllarlo all'apertura e
+  avvisare. Su iOS ritorna sempre false.
+- `isIgnoringBatteryOptimizations()`: whitelist Doze (true = esclusa
+  dall'ottimizzazione). Su iOS sempre true.
+- Fix: il marker once-per-boot del self-heal ora tollera 10 minuti di
+  aggiustamento orologio (un sync NTP post-boot sfondava i 5 s e faceva
+  ri-registrare le fence a ogni apertura, azzerandone lo stato in Play
+  Services → finti enter/exit di ri-sincronizzazione al fix successivo).
+
 ## 2.0.0
 
 **Riscrittura completa, API nuova (breaking).** Il motore 1.x consegnava gli

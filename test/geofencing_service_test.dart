@@ -72,6 +72,12 @@ void main() {
         if (call.method == 'getRegisteredGeofenceIds') {
           return <String>['casa', 'ufficio'];
         }
+        if (call.method == 'isBackgroundRestricted') {
+          return true;
+        }
+        if (call.method == 'isIgnoringBatteryOptimizations') {
+          return false;
+        }
         return null;
       });
     });
@@ -104,6 +110,14 @@ void main() {
       await FlutterGeofencePlugin.removeGeofence('casa');
       expect(log.single.method, 'removeGeofence');
       expect(log.single.arguments, {'id': 'casa'});
+    });
+
+    test('isBackgroundRestricted e isIgnoringBatteryOptimizations', () async {
+      expect(await FlutterGeofencePlugin.isBackgroundRestricted(), isTrue);
+      expect(
+          await FlutterGeofencePlugin.isIgnoringBatteryOptimizations(), isFalse);
+      expect(log.map((c) => c.method),
+          ['isBackgroundRestricted', 'isIgnoringBatteryOptimizations']);
     });
 
     test('getRegisteredGeofenceIds ritorna la lista', () async {

@@ -67,6 +67,26 @@ class FlutterGeofencePlugin {
     return ids ?? const [];
   }
 
+  /// True se l'utente (o l'OS, es. dopo crash ripetuti) ha messo l'app in
+  /// "Batteria → Con limitazioni" (background restricted): in quello stato
+  /// Android SCARTA i broadcast diretti all'app — incluse le consegne delle
+  /// geofence — in totale silenzio, e il plugin non puo' accorgersene da
+  /// solo (nessun processo parte). Le app dovrebbero controllarlo a ogni
+  /// apertura e avvisare l'utente. Sempre false su iOS e sotto Android 9.
+  static Future<bool> isBackgroundRestricted() async {
+    final v = await _channel.invokeMethod<bool>('isBackgroundRestricted');
+    return v ?? false;
+  }
+
+  /// True se l'app e' esclusa dall'ottimizzazione batteria (whitelist Doze).
+  /// Meno critico di [isBackgroundRestricted]: senza whitelist il geofencing
+  /// funziona ma con latenze maggiori sotto Doze. Sempre true su iOS.
+  static Future<bool> isIgnoringBatteryOptimizations() async {
+    final v =
+        await _channel.invokeMethod<bool>('isIgnoringBatteryOptimizations');
+    return v ?? true;
+  }
+
   static const MethodChannel _backgroundChannel = MethodChannel(
       'com.matteotomasini.flutter_geofence_plugin/background');
 

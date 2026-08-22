@@ -101,6 +101,13 @@ public class FlutterGeofencePlugin: NSObject, FlutterPlugin, CLLocationManagerDe
             lastDeliveredEvent.removeValue(forKey: id)
             result(nil)
 
+        case "isBackgroundRestricted":
+            // Concetto solo Android: iOS non ha uno stato equivalente.
+            result(false)
+
+        case "isIgnoringBatteryOptimizations":
+            result(true)
+
         case "getRegisteredGeofenceIds":
             result(locationManager.monitoredRegions.map { $0.identifier })
 

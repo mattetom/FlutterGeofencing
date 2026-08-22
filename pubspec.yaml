@@ -1,6 +1,6 @@
 name: geofencing_service
 description: "Native geofencing for Flutter (Android GeofencingClient, iOS Core Location region monitoring) with a background Dart callback that also runs when the app is terminated. v2 is a ground-up rewrite."
-version: 2.0.0
+version: 2.1.0
 repository: https://github.com/mattetom/FlutterGeofencing
 
 environment:
