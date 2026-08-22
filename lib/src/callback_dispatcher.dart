@@ -1,99 +1,54 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
-
 import 'dart:ui';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
-import 'package:geofencing_service/src/geofencing.dart';
-import 'package:geofencing_service/src/location.dart';
+import 'geofence_models.dart';
 
-@pragma('vm:entry-point') 
+const MethodChannel _backgroundChannel = MethodChannel(
+    'com.matteotomasini.flutter_geofence_plugin/background');
+
+/// Entrypoint eseguito dal codice nativo in un isolate dedicato quando
+/// arriva un evento di geofence (anche ad app terminata).
+///
+/// Non chiamare direttamente: viene avviato dal plugin nativo tramite il
+/// callback handle registrato con [FlutterGeofencePlugin.initialize].
+@pragma('vm:entry-point')
 void callbackDispatcher() {
-  const MethodChannel _backgroundChannel =
-      MethodChannel('plugins.flutter.io/geofencing_plugin_background');
   WidgetsFlutterBinding.ensureInitialized();
 
-  _backgroundChannel.setMethodCallHandler((MethodCall call) async {
-    try {
-      final List<dynamic> args =
-          (call.arguments as List<dynamic>?) ?? <dynamic>[];
-
-      if (args.length < 4) {
-        print('GeofencingPlugin: Invalid callback arguments received');
-        return;
-      }
-
-      final Function? callback = PluginUtilities.getCallbackFromHandle(
-          CallbackHandle.fromRawHandle(args[0]));
-
-      // Use proper null check instead of assert (assert is stripped in release mode)
-      if (callback == null) {
-        print('GeofencingPlugin: Failed to retrieve callback from handle ${args[0]}');
-        return;
-      }
-
-      final List<String> triggeringGeofences = args[1]?.cast<String>() ?? <String>[];
-      final List<double> locationList = <double>[];
-
-      // 0.0 becomes 0 somewhere during the method call, resulting in wrong
-      // runtime type (int instead of double). This is a simple way to get
-      // around casting in another complicated manner.
-      if (args[2] != null) {
-        args[2].forEach((dynamic e) => locationList.add(double.parse(e.toString())));
-      }
-
-      // Optional 5th element: triggering-location time as int64 millis since
-      // epoch. 0 is treated as "not provided" since both platforms use 0 when
-      // the underlying timestamp is unavailable.
-      int? triggerTimeMillis;
-      if (args.length > 4 && args[4] != null) {
-        final raw = args[4];
-        if (raw is num) {
-          final asInt = raw.toInt();
-          if (asInt > 0) triggerTimeMillis = asInt;
-        }
-      }
-
-      final Location triggeringLocation = locationFromCallback(
-        coords: locationList,
-        timeMillisSinceEpoch: triggerTimeMillis,
-      );
-      final GeofenceEvent event = intToGeofenceEvent(args[3]);
-
-      // Optional 6th element: whether this is the synthetic initial-trigger
-      // event delivered on (re)registration (Android only) rather than a real
-      // crossing. Absent (iOS / older native) => false. Exposed to the callback
-      // via a static side-channel so the callback signature stays unchanged and
-      // backward compatible with 3-arg callbacks.
-      bool isInitialTrigger = false;
-      if (args.length > 5 && args[5] is bool) {
-        isInitialTrigger = args[5] as bool;
-      }
-      GeofencingManager.lastEventWasInitialTrigger = isInitialTrigger;
-
-      List<int>? deliveryTimings;
-      if (args.length > 6 && args[6] is List) {
-        deliveryTimings = <int>[
-          for (final dynamic v in args[6] as List) (v as num).toInt(),
-        ];
-      }
-      GeofencingManager.lastEventDeliveryTimings = deliveryTimings;
-
-      // Call the user's callback with try-catch to prevent crashes
-      try {
-        callback(triggeringGeofences, triggeringLocation, event);
-      } catch (e, stackTrace) {
-        print('GeofencingPlugin: Error in user callback: $e');
-        print(stackTrace);
-      }
-    } catch (e, stackTrace) {
-      print('GeofencingPlugin: Error in callback dispatcher: $e');
-      print(stackTrace);
+  _backgroundChannel.setMethodCallHandler((call) async {
+    if (call.method != 'onGeofenceEvent') {
+      throw UnimplementedError('${call.method} not implemented');
     }
+
+    final args = call.arguments as Map<Object?, Object?>;
+    final handle = CallbackHandle.fromRawHandle(args['callbackHandle'] as int);
+    final callback = PluginUtilities.getCallbackFromHandle(handle);
+    if (callback == null) {
+      // L'app è stata aggiornata e il vecchio handle non è più valido:
+      // l'evento viene perso, ma non deve far crashare l'isolate.
+      return;
+    }
+
+    final fixTime = args['fixTime'] as int?;
+    final event = GeofenceTriggerEvent(
+      regionIds: (args['ids'] as List<Object?>).cast<String>(),
+      type: GeofenceEventType.fromBitmask(args['event'] as int),
+      latitude: (args['latitude'] as num).toDouble(),
+      longitude: (args['longitude'] as num).toDouble(),
+      timestamp:
+          DateTime.fromMillisecondsSinceEpoch(args['timestamp'] as int),
+      fixTimestamp: fixTime == null || fixTime <= 0
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(fixTime, isUtc: true),
+      accuracy: (args['accuracy'] as num?)?.toDouble(),
+    );
+
+    await (callback as GeofenceCallback)(event);
   });
-  
-  _backgroundChannel.invokeMethod('GeofencingService.initialized');
+
+  // Segnala al nativo che l'isolate è pronto: gli eventi accodati
+  // prima di questo momento vengono consegnati ora.
+  _backgroundChannel.invokeMethod<void>('backgroundIsolateInitialized');
 }

@@ -1,5 +1,48 @@
 # Changelog
 
+## 2.0.0
+
+**Riscrittura completa, API nuova (breaking).** Il motore 1.x consegnava gli
+eventi a Dart attraverso `JobIntentService`: sotto Doze la coda JobScheduler
+tratteneva le consegne per decine di minuti (misurati 22 e 95 minuti sul
+campo). Il tentativo di dispatch diretto sul motore 1.x (1.3.4, mai
+pubblicato) si impantanava se l'isolate di background non partiva. La 2.0 è
+un progetto nuovo, validato sul campo, che tiene il dispatch diretto e lo
+rende robusto:
+
+- Dispatch diretto nel BroadcastReceiver sotto `goAsync()`: niente coda
+  JobScheduler, receiver→callback Dart in decine di millisecondi.
+- **Watchdog con recupero** sull'isolate di background: init assente entro
+  15 s → engine distrutto e ricreato (retry schedulato, tetto 3 fallimenti,
+  coda cap 32). Mai più code impantanate in silenzio.
+- Ri-registrazione automatica post-reboot (receiver dedicato) + self-heal
+  idempotente a ogni `initialize()`, al più una volta per boot.
+- `GeofenceRegion.initialTriggers` configurabile (none/enter/exit/both).
+- `promoteToForeground()`/`demoteToBackground()` per callback lunghi
+  (foreground service type location; no-op su iOS).
+- Evento con `fixTimestamp` (fix che ha innescato la transizione) e
+  `accuracy`.
+- iOS: engine headless con lo stesso watchdog, dedup delle riconsegne
+  duplicate al rilancio in background, registrazione risolta su
+  `didStartMonitoringFor`.
+
+**Migrazione dalla 1.x: vedi README, sezione "Migrazione dalla 1.x".**
+In particolare: API Dart nuova (callback globale con
+`GeofenceTriggerEvent`), e vanno RIMOSSE le vecchie dichiarazioni manifest
+`io.flutter.plugins.geofencing.*` (con la 2.0 i componenti arrivano dal
+manifest merge del plugin; lasciarle causa ClassNotFoundException a ogni
+boot/update dell'app).
+
+Storia di sviluppo pre-release (come `flutter_geofence_plugin` 0.0.1-0.1.2):
+watchdog, initial trigger configurabile, foreground promotion, self-heal
+once-per-boot, validazione su simulatore/emulatore e sul campo (Galaxy
+Z Fold6, enter/exit reali su due aree).
+
+---
+
+Storia 1.x (motore precedente):
+
+
 ## 1.3.3
 
 ### Bug fixes (Android)

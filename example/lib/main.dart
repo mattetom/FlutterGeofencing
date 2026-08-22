@@ -1,205 +1,252 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
-
-import 'dart:async';
-import 'dart:io';
-import 'dart:isolate';
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-
 import 'package:geofencing_service/geofencing_service.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-void main() => runApp(MyApp());
+final FlutterLocalNotificationsPlugin _notifications =
+    FlutterLocalNotificationsPlugin();
 
-class MyApp extends StatefulWidget {
-  @override
-  _MyAppState createState() => _MyAppState();
+Future<void> _initNotifications() async {
+  const settings = InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    iOS: DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    ),
+  );
+  await _notifications.initialize(settings: settings);
 }
 
-class _MyAppState extends State<MyApp> {
-  String geofenceState = 'N/A';
-  List<String> registeredGeofences = [];
-  double latitude = 45.675120;
-  double longitude = 8.952792;
-  double radius = 200.0;
-  ReceivePort port = ReceivePort();
-  final List<GeofenceEvent> triggers = <GeofenceEvent>[
-    GeofenceEvent.enter,
-    GeofenceEvent.exit
-  ];
-  final AndroidGeofencingSettings androidSettings = AndroidGeofencingSettings(
-    initialTrigger: <GeofenceEvent>[GeofenceEvent.enter, GeofenceEvent.exit],
-    loiteringDelay: 0,
-    notificationResponsiveness: 0,
+/// Callback di geofence: gira in un isolate in background, anche ad app
+/// terminata. Deve essere top-level e annotato con vm:entry-point, e non
+/// può toccare lo stato dell'app (qui re-inizializza le notifiche da zero).
+@pragma('vm:entry-point')
+Future<void> geofenceTriggered(GeofenceTriggerEvent event) async {
+  await _initNotifications();
+
+  final entered = event.type == GeofenceEventType.enter;
+  const details = NotificationDetails(
+    android: AndroidNotificationDetails(
+      'geofence_events',
+      'Eventi geofence',
+      channelDescription: 'Notifiche di ingresso/uscita dalle aree',
+      importance: Importance.high,
+      priority: Priority.high,
+    ),
+    iOS: DarwinNotificationDetails(),
   );
 
-  @override
-  void initState() {
-    super.initState();
-    IsolateNameServer.registerPortWithName(
-      port.sendPort,
-      'geofencing_send_port',
-    );
-    port.listen((dynamic data) {
-      print('Event: $data');
-      sendGeofenceNotification(
-          data == '0' ? GeofenceEvent.enter : GeofenceEvent.exit);
-      setState(() {
-        geofenceState = data;
-      });
-    });
-    initPlatformState();
-  }
+  await _notifications.show(
+    id: DateTime.now().millisecondsSinceEpoch & 0x7FFFFFFF,
+    title: entered ? 'Sei entrato in un\'area' : 'Sei uscito da un\'area',
+    body: '${entered ? 'Ingresso' : 'Uscita'}: ${event.regionIds.join(', ')}',
+    notificationDetails: details,
+  );
+}
 
-  void registerGeofence() async {
-    final firstPermission = await Permission.locationWhenInUse.request();
-    final secondPermission = await Permission.locationAlways.request();
-    if (firstPermission.isGranted && secondPermission.isGranted) {
-      await GeofencingManager.registerGeofence(
-        GeofenceRegion(
-          'gfp',
-          latitude,
-          longitude,
-          radius,
-          triggers,
-          androidSettings,
-        ),
-        callback,
-      );
-      final registeredIds = await GeofencingManager.getRegisteredGeofenceIds();
-      setState(() {
-        registeredGeofences = registeredIds;
-      });
-    }
-  }
+void main() {
+  runApp(const GeofenceExampleApp());
+}
 
-  void unregisteGeofence() async {
-    await GeofencingManager.removeGeofenceById('gfp');
-    final registeredIds = await GeofencingManager.getRegisteredGeofenceIds();
-    setState(() {
-      registeredGeofences = registeredIds;
-    });
-  }
-
-  @pragma('vm:entry-point')
-  static void callback(List<String> ids, Location l, GeofenceEvent e) async {
-    print('Fences: $ids Location $l Event: $e');
-    final SendPort? send =
-        IsolateNameServer.lookupPortByName('geofencing_send_port');
-    if (send != null)
-      send.send(e == GeofenceEvent.enter ? '0' : '1');
-    else {
-      print("SendPort is null");
-      sendGeofenceNotification(e);
-    }
-  }
-
-  Future<void> initPlatformState() async {
-    print('Initializing...');
-    await GeofencingManager.initialize();
-    print('Initialization done');
-    print('Retrieving registered geofence ids...');
-    final registeredIds = await GeofencingManager.getRegisteredGeofenceIds();
-    setState(() {
-      registeredGeofences = registeredIds;
-    });
-    print('Retrieving registered geofence ids done');
-  }
+class GeofenceExampleApp extends StatelessWidget {
+  const GeofenceExampleApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: Scaffold(
-          appBar: AppBar(
-            title: const Text('Flutter Geofencing Example'),
-          ),
-          body: Container(
-              padding: const EdgeInsets.all(20.0),
-              child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    Text('Current state: $geofenceState'),
-                    Center(
-                      child: TextButton(
-                        child: const Text('Register'),
-                        onPressed: registerGeofence,
-                      ),
-                    ),
-                    Text('Registered Geofences: $registeredGeofences'),
-                    Center(
-                      child: TextButton(
-                        child: const Text('Unregister'),
-                        onPressed: unregisteGeofence,
-                      ),
-                    ),
-                    TextField(
-                      decoration: const InputDecoration(
-                        hintText: 'Latitude',
-                      ),
-                      keyboardType: TextInputType.number,
-                      controller:
-                          TextEditingController(text: latitude.toString()),
-                      onChanged: (String s) {
-                        latitude = double.tryParse(s)!;
-                      },
-                    ),
-                    TextField(
-                        decoration:
-                            const InputDecoration(hintText: 'Longitude'),
-                        keyboardType: TextInputType.number,
-                        controller:
-                            TextEditingController(text: longitude.toString()),
-                        onChanged: (String s) {
-                          longitude = double.tryParse(s)!;
-                        }),
-                    TextField(
-                        decoration: const InputDecoration(hintText: 'Radius'),
-                        keyboardType: TextInputType.number,
-                        controller:
-                            TextEditingController(text: radius.toString()),
-                        onChanged: (String s) {
-                          radius = double.tryParse(s)!;
-                        }),
-                  ]))),
+      title: 'Geofence example',
+      theme: ThemeData(colorSchemeSeed: Colors.teal),
+      home: const GeofenceHomePage(),
     );
   }
+}
 
-  /// Banco di prova: invece di notificare, appende una riga al log con la
-  /// scomposizione del ritardo di consegna. E' la stessa misura usata sul
-  /// device reale, ridotta al minimo indispensabile e senza dipendenze.
-  ///
-  ///   gms    = dal fix di posizione all'ingresso del broadcast receiver
-  ///   loader = init sincrona del Flutter loader dentro il receiver
-  ///   queue  = attesa nella coda del JobScheduler (il sospetto principale)
-  ///   engine = avvio dell'isolate di background fino a qui
-  static Future<void> sendGeofenceNotification(GeofenceEvent e) async {
-    final timings = GeofencingManager.lastEventDeliveryTimings;
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final parts = <String>[
-      DateTime.now().toIso8601String(),
-      e == GeofenceEvent.enter ? 'enter' : 'exit',
-      'initial=${GeofencingManager.lastEventWasInitialTrigger}',
-    ];
-    if (timings != null && timings.length >= 3 && timings[0] != 0) {
-      parts.addAll(<String>[
-        'loader_ms=${timings[1] - timings[0]}',
-        'queue_ms=${timings[2] - timings[1]}',
-        'engine_ms=${nowMs - timings[2]}',
-      ]);
+class GeofenceHomePage extends StatefulWidget {
+  const GeofenceHomePage({super.key});
+
+  @override
+  State<GeofenceHomePage> createState() => _GeofenceHomePageState();
+}
+
+class _GeofenceHomePageState extends State<GeofenceHomePage> {
+  final _idController = TextEditingController(text: 'casa');
+  final _latController = TextEditingController(text: '45.4642');
+  final _lngController = TextEditingController(text: '9.1900');
+  final _radiusController = TextEditingController(text: '200');
+  bool _onEnter = true;
+  bool _onExit = true;
+
+  bool _permissionsGranted = false;
+  List<String> _registeredIds = const [];
+  String? _status;
+
+  @override
+  void initState() {
+    super.initState();
+    _setup();
+  }
+
+  Future<void> _setup() async {
+    await _initNotifications();
+    await _requestNotificationPermissions();
+    await FlutterGeofencePlugin.initialize(geofenceTriggered);
+    final granted = await FlutterGeofencePlugin.requestPermissions();
+    final ids = await FlutterGeofencePlugin.getRegisteredGeofenceIds();
+    if (!mounted) return;
+    setState(() {
+      _permissionsGranted = granted;
+      _registeredIds = ids;
+      _status = granted
+          ? 'Permessi di localizzazione in background concessi.'
+          : 'Serve il permesso "Consenti sempre" per il geofencing '
+              'in background: riprova o concedilo dalle impostazioni.';
+    });
+  }
+
+  Future<void> _requestNotificationPermissions() async {
+    await _notifications
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+    await _notifications
+        .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
+  }
+
+  Future<void> _register() async {
+    final lat = double.tryParse(_latController.text);
+    final lng = double.tryParse(_lngController.text);
+    final radius = double.tryParse(_radiusController.text);
+    final id = _idController.text.trim();
+
+    if (id.isEmpty || lat == null || lng == null || radius == null) {
+      setState(() => _status = 'Compila id, latitudine, longitudine e raggio.');
+      return;
     }
+    if (!_onEnter && !_onExit) {
+      setState(() => _status = 'Seleziona almeno una transizione.');
+      return;
+    }
+
     try {
-      final dir = await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
-      await File('${dir.path}/geofence_bench.log')
-          .writeAsString('${parts.join("|")}\n',
-              mode: FileMode.append, flush: true);
-    } catch (err) {
-      print('bench log failed: $err');
+      await FlutterGeofencePlugin.registerGeofence(GeofenceRegion(
+        id: id,
+        latitude: lat,
+        longitude: lng,
+        radiusMeters: radius,
+        triggers: {
+          if (_onEnter) GeofenceEventType.enter,
+          if (_onExit) GeofenceEventType.exit,
+        },
+      ));
+      final ids = await FlutterGeofencePlugin.getRegisteredGeofenceIds();
+      setState(() {
+        _registeredIds = ids;
+        _status = 'Area "$id" registrata.';
+      });
+    } catch (e) {
+      setState(() => _status = 'Registrazione fallita: $e');
     }
-    print('BENCH ${parts.join("|")}');
+  }
+
+  Future<void> _remove(String id) async {
+    await FlutterGeofencePlugin.removeGeofence(id);
+    final ids = await FlutterGeofencePlugin.getRegisteredGeofenceIds();
+    setState(() {
+      _registeredIds = ids;
+      _status = 'Area "$id" rimossa.';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Geofence example')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          if (_status != null)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(_status!),
+              ),
+            ),
+          if (!_permissionsGranted)
+            FilledButton(
+              onPressed: () async {
+                final granted = await FlutterGeofencePlugin.requestPermissions();
+                setState(() => _permissionsGranted = granted);
+              },
+              child: const Text('Richiedi permessi posizione'),
+            ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _idController,
+            decoration: const InputDecoration(labelText: 'Id area'),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _latController,
+                  decoration: const InputDecoration(labelText: 'Latitudine'),
+                  keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true, signed: true),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _lngController,
+                  decoration: const InputDecoration(labelText: 'Longitudine'),
+                  keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true, signed: true),
+                ),
+              ),
+            ],
+          ),
+          TextField(
+            controller: _radiusController,
+            decoration: const InputDecoration(labelText: 'Raggio (metri)'),
+            keyboardType: TextInputType.number,
+          ),
+          CheckboxListTile(
+            value: _onEnter,
+            onChanged: (v) => setState(() => _onEnter = v ?? false),
+            title: const Text('Notifica all\'ingresso'),
+            contentPadding: EdgeInsets.zero,
+          ),
+          CheckboxListTile(
+            value: _onExit,
+            onChanged: (v) => setState(() => _onExit = v ?? false),
+            title: const Text('Notifica all\'uscita'),
+            contentPadding: EdgeInsets.zero,
+          ),
+          FilledButton(
+            onPressed: _register,
+            child: const Text('Registra area'),
+          ),
+          const SizedBox(height: 24),
+          Text('Aree registrate',
+              style: Theme.of(context).textTheme.titleMedium),
+          if (_registeredIds.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('Nessuna area registrata.'),
+            ),
+          for (final id in _registeredIds)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(id),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => _remove(id),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }

@@ -1,16 +1,38 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Necessari al geofencing in background: vengono uniti nel manifest
+         dell'app. La richiesta runtime resta a carico dell'app
+         (FlutterGeofencePlugin.requestPermissions()). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Per promoteToForeground durante i callback lunghi. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application>
+        <!-- Riceve le transizioni da Play Services; exported=false basta,
+             i broadcast di sistema raggiungono anche i receiver non esportati. -->
         <receiver
-            android:name="io.flutter.plugins.geofencing.GeofencingRebootBroadcastReceiver"
+            android:name="com.matteotomasini.flutter_geofence_plugin.GeofenceBroadcastReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="false" />
+
+        <!-- Tiene vivo il processo durante i callback lunghi
+             (promoteToForeground/demoteToBackground). -->
+        <service
+            android:name="com.matteotomasini.flutter_geofence_plugin.GeofenceForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- Ri-registra le geofence dopo il reboot (Android le cancella). -->
+        <receiver
+            android:name="com.matteotomasini.flutter_geofence_plugin.RebootBroadcastReceiver"
+            android:enabled="true"
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
     </application>
