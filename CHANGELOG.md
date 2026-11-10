@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.1
+
+- Fix (Android): `ForegroundServiceDidNotStartInTimeException` crash with
+  overlapping callbacks (several geofences in one delivery, or events a few
+  seconds apart). `demoteToBackground` sent a stop that called `stopSelf()`
+  without a start id, which could stop the service while a
+  `startForegroundService` was still queued. Promote/demote are now counted
+  (the stop is sent when the last callback is done) and the stop uses
+  `stopSelfResult(startId)`. A callback that never calls demote releases the
+  service after 5 minutes.
+
 ## 2.1.0
 
 - `isBackgroundRestricted()`: rileva "Batteria → Con limitazioni" (lo stato
